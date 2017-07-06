@@ -1,0 +1,55 @@
+引言：在目前的Linux系统中，默认使用的都是Python 2.7.x的版本环境，如何想要在其上基于Python3的环境来进行开发，则需要基于VirutalEnv来构建独立的开发环境。
+ 
+1.环境介绍
+CentOS 7,  Python 2.7, Python 3.6
+ 
+2.下载安装virutalenv
+>>  pip install virtualenv
+[root@xxxl]# ^C  
+[root@xxxZ]# pip install virtualenv  
+Collecting virtualenv  
+Downloading http://mirrors.aliyun.com/pypi/packages/6f/86/3dc328ee7b1a6419ebfac7896d882fba83c48e3561d22ddddf38294d3e83/virtualenv-15.1.0-py2.py3-none-any.whl (1.8MB)  
+100% |███████████████| 1.8MB 34.9MB/s   
+Installing collected packages: virtualenv  
+Successfully installed virtualenv-15.1.0  
+测试是否安装成功：
+>> virtualenv -h
+[root@xxx]# virtualenv -h  
+Usage: virtualenv [OPTIONS] DEST_DIR
+Options:  
+--version             show program's version number and exit  
+-h, --help            show this help message and exit  
+-v, --verbose         Increase verbosity.  
+-q, --quiet           Decrease verbosity.  
+-p PYTHON_EXE, --python=PYTHON_EXE  
+The Python interpreter to use, e.g.,  
+--python=python2.5 will use the python2.5 interpreter to create the new environment.  The default is the interpreter that virtualenv was installed with (/usr/bin/python2)  
+--clear               Clear out the non-root install and start from scratch.  
+--no-site-packages    DEPRECATED. Retained only for backward compatibility. Not having access to global site-packages is now the default behavior.  
+--system-site-packages Give the virtual environment access to the global site-packages.  
+--always-copy         Always copy files rather than symlinking.  
+--unzip-setuptools    Unzip Setuptools when installing it.  
+--relocatable         Make an EXISTING virtualenv environment relocatable.This fixes up scripts and makes all .pth files relative.  
+--no-setuptools       Do not install setuptools in the new virtualenv.  
+--no-pip              Do not install pip in the new virtualenv.  
+--no-wheel            Do not install wheel in the new virtualenv.  
+--extra-search-dir=DIR  
+Directory to look for setuptools/pip distributions in. This option can be used multiple times.  
+--download            Download preinstalled packages from PyPI.  
+--no-download, --never-download Do not download preinstalled packages from PyPI.  
+--prompt=PROMPT       Provides an alternative prompt prefix for this environment.  
+--setuptools          DEPRECATED. Retained only for backward compatibility.This option has no effect.  
+--distribute          DEPRECATED. Retained only for backward compatibility.This option has no effect.
+virutalenv安装成功了。
+ 
+3.安装新的Python版本
+可以从python的官方站点，下载源代码，编译安装，这里Python安装包是3.6.1的版本。具体的安装过程可以参考网路上的文档。
+ 
+4.VirtualEnv的设置
+>> virutalenv -p  python36-install-path python36env
+这里设置Python版本为3.6， 新的环境目录为python36env
+>> source python36env/bin/activate    # 激活虚拟环境
+>>  deactivate   # 退出当前的虚拟环境
+ 
+5.总结
+这个隔离的环境非常方便，进行程序的开发和环境的切换。
