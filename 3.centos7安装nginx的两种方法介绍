@@ -1,4 +1,10 @@
 centos7安装nginx
+
+
+详细安装方法:http://jingyan.baidu.com/article/3aed632e27c6c67011809160.html
+
+
+
 第一种方式：通过yum安装
 直接通过 yum install nginx 肯定是不行的,因为yum没有nginx，所以首先把 nginx 的源加入 yum 中。
 运行下面的命令:
