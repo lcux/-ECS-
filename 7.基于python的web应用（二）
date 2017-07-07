@@ -1,0 +1,1271 @@
+5 缓存加速器varnish安装
+5.1 安装
+这里采用的是apt-get安装
+#apt-get install varnish
+5.2 修改主配置
+修改配置文件 /etc/varnish/default.vcl
+# This is a basic VCL configuration file for varnish.  See the vcl(7)
+# man page for details on VCL syntax and semantics.
+#
+# Default backend definition.  Set this to point to your content
+# server.
+#
+backend tornado8001 {
+   .host = "127.0.0.1";
+   .port = "8001";
+   .probe = {
+     .timeout = 5s;        
+     .interval = 2s;          
+     .window = 10;        
+     .threshold = 8;  
+   }
+}
+backend tornado8002 {
+   .host = "127.0.0.1";
+   .port = "8002";
+   .probe = {
+     .timeout = 5s;        
+     .interval = 2s;          
+     .window = 10;        
+     .threshold = 8;  
+   }
+}
+backend tornado8003 {
+   .host = "127.0.0.1";
+   .port = "8003";
+   .probe = {
+     .timeout = 5s;        
+     .interval = 2s;          
+     .window = 10;        
+     .threshold = 8;  
+   }
+}
+backend tornado8004 {
+   .host = "127.0.0.1";
+   .port = "8004";
+   .probe = {
+     .timeout = 5s;        
+     .interval = 2s;          
+     .window = 10;        
+     .threshold = 8;  
+   }
+}
+director yxm random
+       { .retries = 4;
+           { .backend = tornado8001;
+             .weight = 4;
+          }
+          { .backend = tornado8002;
+              .weight = 4;
+           }
+           { .backend = tornado8003;
+             .weight = 4;
+            }
+           { .backend = tornado8004;
+              .weight = 4;
+           }
+       }
+acl purge {
+       "localhost";
+       "127.0.0.1";
+   }
+#
+# Below is a commented-out copy of the default VCL logic.  If you
+# redefine any of these subroutines, the built-in logic will be
+# appended to your code.
+sub vcl_recv {
+if (req.request == "PURGE") {
+       if (!client.ip ~ purge) {
+       error 405 "Not allowed.";
+       return(lookup);
+       }
+    }
+    if (req.restarts == 0) {
+       if (req.http.x-forwarded-for) {
+           set req.http.X-Forwarded-For =
+               req.http.X-Forwarded-For + ", " + client.ip;
+       } else {
+           set req.http.X-Forwarded-For = client.ip;
+       }
+    }
+    if (req.request != "GET" &&
+      req.request != "HEAD" &&
+      req.request != "PUT" &&
+      req.request != "POST" &&
+      req.request != "TRACE" &&
+      req.request != "OPTIONS" &&
+      req.request != "DELETE") {
+ /* Non-RFC2616 or CONNECT which is weird. */
+        return (pipe);
+    }
+    if (req.request != "GET" && req.request != "HEAD") {
+        /* We only deal with GET and HEAD by default */
+        return (pass);
+}
+if (req.request == "GET" && req.url ~ "\.(py)($|\?)") {
+       set req.backend = yxm;
+    }
+    if (req.http.Authorization || req.http.Cookie) {
+        /* Not cacheable by default */
+        return (pass);
+    }
+    return (lookup);
+}
+#
+sub vcl_pipe {
+#     # Note that only the first request to the backend will have
+#     # X-Forwarded-For set.  If you use X-Forwarded-For and want to
+#     # have it set for all requests, make sure to have:
+#     # set bereq.http.connection = "close";
+#     # here.  It is not set by default as it might break some broken web
+#     # applications, like IIS with NTLM authentication.
+    return (pipe);
+}
+#
+sub vcl_pass {
+    return (pass);
+}
+#
+sub vcl_hash {
+    hash_data(req.url);
+    if (req.http.host) {
+        hash_data(req.http.host);
+    } else {
+        hash_data(server.ip);
+    }
+    return (hash);
+}
+#
+sub vcl_hit {
+    return (deliver);
+}
+sub vcl_miss {
+    return (fetch);
+}
+sub vcl_fetch {
+    if (beresp.ttl <= 0s ||
+        beresp.http.Set-Cookie ||
+        beresp.http.Vary == "*") {
+               /*
+                * Mark as "Hit-For-Pass" for the next 2 minutes
+                */
+               set beresp.ttl = 120 s;
+               return (hit_for_pass);
+    }
+if (req.request == "GET" && req.url ~ "\.(js|css|mp3|jpg|png|gif|swf|jpeg|ico)$")
+        { set beresp.ttl = 7d; }
+    return (deliver);
+}
+#
+sub vcl_deliver {
+    set resp.http.x-hits = obj.hits ;
+      if (obj.hits > 0)
+             { set resp.http.X-Cache = "HIT cqtel-bbs"; }
+      else { set resp.http.X-Cache = "MISS cqtel-bbs"; }
+}
+#
+# sub vcl_error {
+#     set obj.http.Content-Type = "text/html; charset=utf-8";
+#     set obj.http.Retry-After = "5";
+#     synthetic {"
+# <?xml version="1.0" encoding="utf-8"?>
+# <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+#  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+# <html>
+#   <head>
+#     <title>"} + obj.status + " " + obj.response + {"</title>
+#   </head>
+#   <body>
+#     <h1>Error "} + obj.status + " " + obj.response + {"</h1>
+#     <p>"} + obj.response + {"</p>
+#     <h3>Guru Meditation:</h3>
+#     <p>XID: "} + req.xid + {"</p>
+#     <hr>
+#     <p>Varnish cache server</p>
+#   </body>
+# </html>
+# "};
+#     return (deliver);
+# }
+#
+sub vcl_init {
+       return (ok);
+}
+sub vcl_fini {
+       return (ok);
+}
+说明：根据官方文档得知，在转发后端请求时，如果配置服务器组，会线将请求转发到dirctor，然后根据director的规则来就行选中后端的具体服务器：
+5.3 原理：
+spacer.gif
+（1） Receive状态，也就是请求处理的入口状态，根据VCL规则判断该请求应该是Pass或Pipe，或者进入Lookup（本地查询）。
+（2） Lookup状态，进入此状态后，会在hash表中查找数据，若找到，则进入Hit状态，否则进入miss状态。
+（3） Pass状态，在此状态下，会进入后端请求，即进入fetch状态。
+（4） Fetch状态，在Fetch状态下，对请求进行后端的获取，发送请求，获得数据，并进行本地的存储。
+（5） Deliver状态， 将获取到的数据发送给客户端，然后完成本次请求。
+5.4 VCL内置函数：
+（1）vcl_recv函数
+用于接收和处理请求，当请求到达并成功接收后被调用，通过判断请求的数据来决定如何处理请求。
+此函数一般以如下几个关键字结束：
+q pass：表示进入pass模式，把请求控制权交给vcl_pass函数。
+q pipe：表示进入pipe模式，把请求控制权交给vcl_pipe函数。
+q error code [reason]：表示返回“code”给客户端，并放弃处理该请求，“code”是错误标识，例如200、405等，“reason”是错误提示信息。
+（2）vcl_pipe函数
+此函数在进入pipe模式时被调用，用于将请求直接传递至后端主机，在请求和返回的内容没有改变的情况下，将不变的内容返回给客户端，直到这个链接关闭。
+此函数一般以如下几个关键字结束：
+q error code [reason]
+q pipe
+（3）vcl_pass函数
+此函数在进入pass模式时被调用，用于将请求直接传递至后端主机，后端主机应答数据后送给客户端，但不进行任何缓存，在当前连接下每次都返回最新的内容。
+此函数一般以如下几个关键字结束：
+q error code [reason]
+q pass
+（4）lookup
+表示在缓存里查找被请求的对象，并且根据查找的结果把控制权交给函数vcl_hit或者函数vcl_miss。
+（5）vcl_hit函数
+在执行lookup指令后，如果在缓存中找到请求的内容，将自动调用该函数。
+此函数一般以如下几个关键字结束：
+q deliver：表示将找到的内容发送给客户端，并把控制权交给函数vcl_deliver。
+q error code [reason]
+q pass
+（6）vcl_miss函数
+在执行lookup指令后，如果没有在缓存中找到请求的内容时自动调用该方法，此函数可以用于判断是否需要从后端服务器取内容。
+此函数一般以如下几个关键字结束：
+q fetch：表示从后端获取请求的内容，并把控制权交给vcl_fetch函数。
+q error code [reason]
+q pass
+（7）vcl_fetch函数
+在从后端主机更新缓存并且获取内容后调用该方法，接着，通过判断获取的内容来决定是否将内容放入缓存，还是直接返回给客户端。
+此函数一般以如下几个关键字结束：
+q error code [reason]
+q pass
+q deliver
+（8）vcl_deliver函数
+在缓存中找到请求的内容后，发送给客户端前调用此方法。此函数一般以如下几个关键字结束：
+q error code [reason]
+q deliver
+（9）vcl_timeout 函数
+此函数在缓存内容到期前调用。一般以如下几个关键字结束：
+q discard：表示从缓存中清除该内容。
+q fetch
+（10）vcl_discard函数
+在缓存内容到期后或缓存空间不够时，自动调用该方法，一般以如下几个关键字结束：
+q keep：表示将内容继续保留在缓存中。
+q discard
+5.5 VCL内置全局变量：
+公用变量名称    含义
+req.backend        指定对应的后端主机
+server.ip              表示服务器端IP
+client.ip               表示客户端IP
+req.request          指定请求的类型，例如GET、HEAD、POST等
+req.url                 指定请求的地址
+req.proto            表示客户端发起请求的HTTP协议版本
+req.http.header   表示对应请求中的http头部信息
+req. restarts         表示请求重启的次数，默认最大值为4
+Varnish               在向后端主机请求时，可以使用的公用变量如下所示：
+公用变量名称 含义
+beresp.request 指定请求的类型，例如GET、HEAD等
+beresp.url 指定请求的地址
+beresp .proto 表示客户端发起请求的HTTP协议版本
+beresp .http.header 表示对应请求中的http头部信息
+beresp .ttl 表示缓存的生存周期，也就是cache保留多长时间，单位是秒
+从cache或者后端主机获取内容后，可以使用的公用变量如下所示：
+公用变量名称 含义
+obj.status 表示返回内容的请求状态代码，例如200、302、504等
+obj.cacheable 表示返回的内容是否可以缓存，也就是说，如果HTTP返回是200、203、300、301、302、404、410等，并且有非0的生存期，则可以缓存
+obj.valid 表示是否是有效的HTTP应答
+obj.response 表示返回内容的请求状态信息
+obj.proto 表示返回内容的HTTP协议版本
+obj.ttl 表示返回内容的生存周期，也就是缓存时间，单位是秒
+obj.lastuse 表示返回上一次请求到现在的间隔时间，单位是秒
+对客户端应答时，可以使用的公用变量如下所示：
+公用变量名称 含义
+resp.status 表示返回给客户端的HTTP状态代码
+resp.proto 表示返回给客户端的HTTP协议版本
+resp.http.header 表示返回给客户端的HTTP头部信息
+resp.response 表示返回给客户端的HTTP状态信息
+5.6 副配置文件调整
+通过启动脚本可以看到，varnish在启动的时候会调用启动参数文件 /etc/default/varnish，调整如下：
+DAEMON_OPTS="-a :6081 \
+            -T localhost:6082 \
+                -n /var/varnish_dir \
+            -f /etc/varnish/default.vcl \
+            -S /etc/varnish/secret \
+            -s file,/var/varnish_dir/varnish_cache.data,5120m \
+            -u root \
+            -g root"
+-a 程序监听端口
+-T 程序管理端口
+-f 程序启动定义的VCL规则文件
+-S 加密文件
+-s file（将缓存在swap上）|malloc（缓存在内存上），缓存文件名，缓存大小
+-u 启动用户名
+-g 启动用户组
+5.7 启动程序：
+#service varnish start
+由于使用了varnish缓存做代理，所以nginx的反向代理也需要相应调整，只需调整upstream即可：如下：
+upstream tornado {
+       server 127.0.0.1:6081;
+       }
+5.8访问测试：
+spacer.gif
+多点击刷新几次可以，看到已经缓存命中:
+5.9 Varnish 状态分析：
+spacer.gif
+几个重要指标：
+q “Client connections accepted”表示客户端向反向代理服务器成功发送HTTP请求的总数量。
+q "Client requests received"表示到现在为止，浏览器向反向代理服务器发送HTTP请求的累积次数，由于可能会使用长连接，所以这个值一般会大于“Client connections accepted”。
+q “Cache hits”表示反向代理服务器在缓存区中查找并且命中缓存的次数。
+q “Cache misses”表示直接访问后端主机的请求数量，也就是非命中数。
+q “N struct object”表示当前被缓存的数量。
+q “N expired objects”表示过期的缓存内容数量。
+q “N LRU moved objects”表示被淘汰的缓存内容个数。
+从上面的结果可以看到缓存命中率：31/38*100%=81%
+5.10 管理varnish日志：
+1 通过自带的varnishlog指令可以获得varnish详细的系统运行日志。
+spacer.gif
+2 通过自带的varnishncsa指令得到类似apache的combined输出格式的日志。
+root@debian:/etc/logrotate.d# varnishncsa -n /var/varnish_dir/ -w /var/log/varnish/varnish.log
+^C
+root@debian:/etc/logrotate.d# cat /var/log/varnish/varnish.log
+127.0.0.1 - - [12/Sep/2013:13:51:05 +0800] "GET http://10.15.62.202/ HTTP/1.0" 304 0 "-" "Mozilla/5.0 (Windows NT 5.1; rv:23.0) Gecko/20100101 Firefox/23.0"
+127.0.0.1 - - [12/Sep/2013:13:51:06 +0800] "GET http://10.15.62.202/ HTTP/1.0" 304 0 "-" "Mozilla/5.0 (Windows NT 5.1; rv:23.0) Gecko/20100101 Firefox/23.0"
+127.0.0.1 - - [12/Sep/2013:13:51:07 +0800] "GET http://10.15.62.202/ HTTP/1.0" 304 0 "-" "Mozilla/5.0 (Windows NT 5.1; rv:23.0) Gecko/20100101 Firefox/23.0"
+127.0.0.1 - - [12/Sep/2013:13:51:07 +0800] "GET http://10.15.62.202/ HTTP/1.0" 304 0 "-" "Mozilla/5.0 (Windows NT 5.1; rv:23.0) Gecko/20100101 Firefox/23.0"
+root@debian:/etc/logrotate.d#
+下面编写一个名为varnishncsa的shell脚本，每小时生成，
+#!/bin/sh  
+if [ "$1" = "start" ];then  
+/usr/local/varnish/bin/varnishncsa -n /data/varnish/cache  -f |/usr/sbin/rotatelogs /data/varnish/log/varnish.%Y.%m.%d.%H.log 3600 480 &  
+elif [ "$1" = "stop" ];then  
+     killall varnishncsa  
+else  
+               echo $0 "{start|stop}"  
+fi  
+由于时间关系，对于日志管理先写到这（有时间可以加强这一块）
+5.11 管理varnish缓存
+清除所有缓存：
+#/usr/bin/varnishadm -T 127.0.0.1:6082ban.url  ^.*$
+直观查看varnish的命中率，这里在网上找到了一个php的页面：
+<?php
+// This is just a code snippet written by Jason "Foxdie" Gaunt, its not meant to be executed, it may work as-is, it may not.  
+// I freely acknowledge this code is unoptimised but it has worked in practice for 6 months :)  
+// Lets define our connection details  
+$adminHost = "127.0.0.1"; // varnish服务器的IP地址  
+$adminPort = "3500"; // varnish服务器管理端口  
+// pollServer(str) - this function connects to the management port, sends the command and returns the results, or an error on failure  
+function pollServer($command) {  
+global $adminHost, $adminPort;  
+$socket = socket_create(AF_INET, SOCK_STREAM, getprotobyname("tcp"));  
+if ((!socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, Array("sec" => "5", "usec" => "0"))) OR (!socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, Array("sec" => "5", "usec" => "0"))))  {  
+ die("Unable to set socket timeout");  
+}  
+if (@socket_connect($socket, $adminHost, $adminPort)) {  
+ $data = "";  
+ if (!$socket) {  
+  die("Unable to open socket to " . $server . ":" . $port . "\n");  
+ }  
+ socket_write($socket, $command . "\n");  
+ socket_recv($socket, $buffer, 65536, 0);  
+ $data .= $buffer;    
+ socket_close($socket);  
+ return $data;  
+}  
+else {  
+ return "Unable to connect: " . socket_strerror(socket_last_error()) . "\n";  
+}  
+}  
+// byteReduce(str) - this function converts a numeric value of bytes to a human readable format and returns the result  
+function byteReduce($bytes) {  
+// Terabytes  
+if ($bytes > 1099511627776) {  
+ return round($bytes / 1099511627776) . "TB";  
+}  
+else if ($bytes > 1073741824) {  
+ return round($bytes / 1073741824) . "GB";  
+}  
+else if ($bytes > 1048576) {  
+ return round($bytes / 1048576) . "MB";  
+}  
+else if ($bytes > 1024) {  
+ return round($bytes / 1024) . "KB";  
+}  
+else {  
+ return $bytes . "B";  
+}  
+}  
+// This is where our main code starts  
+echo "<div class=\"inner\"><br />Statistics since last reset:<ul>";  
+$stats = pollServer("stats");  
+if (substr($stats, 0, 3) == "200") { // If request was legitimate  
+// Clear all excessive white space and split by lines  
+$stats = preg_replace("/ {2,}/", "|", $stats);  
+$stats = preg_replace("/\n\|/", "\n", $stats);  
+$statsArray = explode("\n", $stats);  
+// Removes the first call return value and splits by pipe  
+array_shift($statsArray);  
+$statistics = array();  
+foreach ($statsArray as $stat) {  
+ @$statVal = explode("|", $stat);  
+ @$statistics[$statVal[1]] = $statVal[0];  
+}  
+unset($stats, $statsArray, $stat, $statVal);  
+// Start outputting statistics  
+echo "<li>" . $statistics["Client connections accepted"] . " clients served over " . $statistics["Client requests received"] . " requests";  
+echo "<li>" . round(($statistics["Cache hits"] / $statistics["Client requests received"]) * 100) . "% of requests served from cache";  
+echo "<li>" . byteReduce($statistics["Total header bytes"] + $statistics["Total body bytes"]) . " served (" . byteReduce($statistics["Total header bytes"]) . " headers, " . byteReduce($statistics["Total body bytes"]) . " content)";  
+// The following line is commented out because it only works when using file storage, I switched to malloc and this broke  
+// echo "<li>" . byteReduce($statistics["bytes allocated"]) . " out of " . byteReduce($statistics["bytes allocated"] + $statistics["bytes free"]) . " used (" . round(($statistics["bytes allocated"] / ($statistics["bytes allocated"] + $statistics["bytes free"])) * 100) . "% usage)";  
+}  
+else {  
+echo "Unable to get stats, error was: \"" . $stats;  
+}  
+echo "</ul></div>";  
+?>
+
+6 Mongodb安装与连接测试：
+6.1 安装
+1下载最新的mongodb
+目前最新的版本为：mongodb-linux-x86_64-2.4.6rc0.tgz
+
+2 解压：
+#tar -zxvf mongodb-linux-x86_64-2.4.6-rc0.tgz
+3 清除本地化设置：
+# export LC_ALL="C"
+
+注意：不执行这一步，启动mongodb可能在初始化的时候会报错
+4 启动mongodb之前的准备：
+创建mongodb的数据库目录： #mkdir  -p /mongodata/db
+创建mongodb的日志文件：   #mkdir /mongodata/log
+  #touch /mongodata/log/mongodb.log
+6.2 启动：
+
+./mongod --dbpath=/mongodata/db --logpath=/mongodata/log/mongodb.log --fork
+6 .3 安装mongodb的python驱动：
+
+#tar -zxvf mongo-python-driver-2.6.2.tar.gz
+#cd mongo-python-driver-2.6.2
+#python setup.py install
+
+6.4 python连接测试
+
+使用python脚本尝试连接数据库：
+
+
+#!/usr/bin/python
+
+import pymongo
+import random
+
+conn = pymongo.Connection("127.0.0.1",27017)
+db = conn.test
+db.authenticate("root","root.com")
+db.user.save({'id':1,'name':'kaka','sex':'male'})
+for id in range(2,10):
+   name = random.choice(['steve','koby','owen','tody','rony'])
+   sex = random.choice(['male','female'])
+   db.user.insert({'id':id,'name':name,'sex':sex})
+content = db.user.find()
+for i in content:
+   print i
+
+
+保存为conn_mongodb.py
+
+执行程序：
+
+root@debian:/usr/local/mongodb/bin# python /root/conn_mongodb.py
+{u'_id': ObjectId('52317dbc6e95524a10505709'), u'id': 1, u'name': u'kaka', u'sex': u'male'}
+{u'_id': ObjectId('52317dbc6e95524a1050570a'), u'id': 2, u'name': u'tody', u'sex': u'male'}
+{u'_id': ObjectId('52317dbc6e95524a1050570b'), u'id': 3, u'name': u'rony', u'sex': u'male'}
+{u'_id': ObjectId('52317dbc6e95524a1050570c'), u'id': 4, u'name': u'owen', u'sex': u'female'}
+{u'_id': ObjectId('52317dbc6e95524a1050570d'), u'id': 5, u'name': u'koby', u'sex': u'female'}
+{u'_id': ObjectId('52317dbc6e95524a1050570e'), u'id': 6, u'name': u'steve', u'sex': u'male'}
+{u'_id': ObjectId('52317dbc6e95524a1050570f'), u'id': 7, u'name': u'tody', u'sex': u'male'}
+{u'_id': ObjectId('52317dbc6e95524a10505710'), u'id': 8, u'name': u'koby', u'sex': u'female'}
+{u'_id': ObjectId('52317dbc6e95524a10505711'), u'id': 9, u'name': u'koby', u'sex': u'male'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4cd'), u'id': 1, u'name': u'kaka', u'sex': u'male'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4ce'), u'id': 2, u'name': u'owen', u'sex': u'male'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4cf'), u'id': 3, u'name': u'tody', u'sex': u'female'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d0'), u'id': 4, u'name': u'koby', u'sex': u'female'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d1'), u'id': 5, u'name': u'tody', u'sex': u'male'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d2'), u'id': 6, u'name': u'tody', u'sex': u'female'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d3'), u'id': 7, u'name': u'tody', u'sex': u'female'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d4'), u'id': 8, u'name': u'rony', u'sex': u'female'}
+{u'_id': ObjectId('52317dc26e95524a16f4b4d5'), u'id': 9, u'name': u'owen', u'sex': u'male'}
+
+表示python连接mongodb正常。
+
+
+
+7  Mongodb 数据分片存储：
+7.1 架构
+
+Mongodb的分片技术即Sharding架构
+
+     就是把海量数据水平扩展的集群系统，数据分表存储在Sharding的各个节点上。
+     Mongodb的数据分开分为chunk，每个chunk都是collection中的一段连续的数据记录，一般为200MB，超出则生成新的数据块。
+
+7.1.1 构建Sharding需要三种角色
+
+shard服务器(Shard Server)：Shard服务器是存储实际数据的分片，每个Shard可以是一个mongod实例，也可以是一组mongod实例构成的Replica Sets，为了实现每个Shard内部的故障自动切换，MongoDB官方建议每个Shard为一组Replica Sets。
+配置服务器(Config Server)：为了将一个特定的collection存储在多个Shard中，需要为该collection指定一个Shard key，决定该条记录属于那个chunk，配置服务器可以存储以下信息：
+
+1，所有Shard节点的配置信息
+2，每个chunk的Shard key范围　　　
+3，chunk在各Shard的分布情况　　　
+4，集群中所有DB和collection的Shard配置信息
+
+路由进程(Route Process):一个前端路由，客户端由此接入，首先询问配置服务器需要到那个Shard上查询或保存记录，然后连接相应Shard执行操作，最后将结果返回客户端。客户端只需 将原本发给mongod的查询活更新请求原封不动的发给路由器进程，而不必关心所操作的记录存储在那个Shard上。
+
+7.1.2架构图：
+
+spacer.gif
+spacer.gifspacer.gifspacer.gif
+
+spacer.gifspacer.gifspacer.gifspacer.gif
+
+
+
+spacer.gifspacer.gifspacer.gifspacer.gif
+
+
+spacer.gifspacer.gifspacer.gifspacer.gif
+
+
+
+spacer.gif
+spacer.gifspacer.gifspacer.gif
+
+
+
+spacer.gifspacer.gifspacer.gif
+
+
+
+
+
+spacer.gifspacer.gifspacer.gif
+
+
+
+
+
+
+spacer.gif
+
+
+7.2 切片准备：
+7.2.1安装
+说明：10.15.62.202 以下使用简称server1
+  10.15.62.202 以下使用简称server2
+  10.15.62.205 以下使用简称server3
+
+1   解压mongodb重命名到/opt目录下：(server1,server2,server3均执行此操作)
+
+#tar -zxvf mongodb-linux-x86_64-2.4.6.tgz && mv mongodb-linux-x86_64-2.4.6 /opt/mongodb && rm -rf mongodb-linux-x86_64-2.4.6.tgz
+
+  2    每台服务器中，创建日志和验证目录，创建MongoDB用户组，创建MongoDB用户同时设置所属MongoDB用户组，设置MongoDB用户密码：
+
+#mkdir -p /opt/mongodb/log /opt/mongodb/security && groupadd mongodb && useradd -g mongodb mongodb && passwd mongodb
+
+  3 创建安全key：(server1,server2,server3均执行此操作)
+
+#openssl rand -base64 741 > /opt/mongodb/security/mongo.key
+#chmod 0600 /opt/mongodb/security/mongo.key
+（不执行该命令会出现报错：644 permissions on /opt/mongodb/security/mongo.key are too open）
+
+
+  4  数据库程序目录结构：
+
+root@debian:/opt/mongodb# tree /opt/mongodb/
+/opt/mongodb/
+├── bin
+│├── bsondump
+│├── mongo
+│├── mongod
+│├── mongodump
+│├── mongoexport
+│├── mongofiles
+│├── mongoimport
+│├── mongooplog
+│├── mongoperf
+│├── mongorestore
+│├── mongos
+│├── mongosniff
+│├── mongostat
+│└── mongotop
+├── GNU-AGPL-3.0
+├── log
+├── README
+├── security
+│└── mongo.key
+└── THIRD-PARTY-NOTICES
+
+3 directories, 18 files
+root@debian:/opt/mongodb#
+
+ 7.2.2 创建数据库和日志目录：
+
+Server1：
+
+#mkdir -p /data/shard10001 /data/shard20001 /data/shard30001 /data/config1  && chown -R mongodb:mongodb /data/shard10001 /data/shard20001 /data/shard30001 /data/config1
+
+Server2：
+
+#mkdir -p /data/shard10002 /data/shard20002 /data/shard30002 /data/config2  && chown -R mongodb:mongodb /data/shard10002 /data/shard20002 /data/shard30002 /data/config2
+
+Server3：
+
+#mkdir -p /data/shard10003 /data/shard20003 /data/shard30003 /data/config3  && chown -R mongodb:mongodb /data/shard10003 /data/shard20003 /data/shard30003 /data/config3
+
+7.2.3 创建mongod sharding启动文件：
+
+Server1：
+
+一、新建配置文件 /opt/mongodb/security/shard10001.conf 加入如下内容：
+
+dbpath=/data/shard10001
+shardsvr=true
+replSet=shard1
+fork = true
+port=10001
+oplogSize=100
+logpath=/opt/mongodb/log/shard10001.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+二、新建配置文件 /opt/mongodb/security/shard20001.conf 加入如下内容：
+
+dbpath=/data/shard20001
+shardsvr=true
+replSet=shard2
+fork = true
+port=10002
+oplogSize=100
+logpath=/opt/mongodb/log/shard20001.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+三、新建配置文件 /opt/mongodb/security/shard30001.conf 加入如下内容：
+
+
+dbpath=/data/shard30001
+shardsvr=true
+replSet=shard3
+fork = true
+port=10003
+oplogSize=100
+logpath=/opt/mongodb/log/shard30001.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+四、新建配置文件/opt/mongodb/security/config1.conf加入如下内容：
+
+dbpath=/data/config1
+configsvr=true
+fork = true
+port=20000
+oplogSize=5
+logpath=/opt/mongodb/log/config1.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+五、新建配置文件/opt/mongodb/security/mongos1.conf加入如下内容：
+
+configdb=10.15.62.202:20000,10.15.62.203:20000,10.15.62.205:20000
+port=30000
+fork = true
+chunkSize=5
+logpath=/opt/mongodb/log/mongos1.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+Server2 如下操作：
+
+①　新建配置文件/opt/mongodb/security/shard10002.conf添加如下内容：
+
+
+dbpath=/data/shard10002
+shardsvr=true
+replSet=shard1
+fork = true
+port=10001
+oplogSize=100
+logpath=/opt/mongodb/log/shard10002.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+②　新建配置文件/opt/mongodb/security/shard20002.conf添加如下内容：
+
+dbpath=/data/shard20002
+shardsvr=true
+replSet=shard2
+fork = true
+port=10002
+oplogSize=100
+logpath=/opt/mongodb/log/shard20002.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+③　新建配置文件 /opt/mongodb/security/shard30002.conf 添加如下内容：
+
+
+dbpath=/data/shard30002
+shardsvr=true
+replSet=shard3
+shardsvr=true
+fork = true
+port=10003
+oplogSize=100
+logpath=/opt/mongodb/log/shard30002.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+
+④　新建配置文件 /opt/mongodb/security/config2.conf 添加如下内容：
+
+
+dbpath=/data/config2
+configsvr=true
+fork = true
+port=20000
+oplogSize=5
+logpath=/opt/mongodb/log/config2.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+⑤　新建配置文件 /opt/mongodb/security/mongos2.conf 添加如下内容：
+
+
+configdb=10.15.62.202:20000,10.15.62.203:20000,10.15.62.205:20000
+port=30000
+fork = true
+chunkSize=5
+logpath=/opt/mongodb/log/mongos1.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+
+Server3 如下操作：
+
+
+1) 新建配置文件/opt/mongodb/security/shard10003.conf添加如下内容：
+
+dbpath=/data/shard10003
+shardsvr=true
+replSet=shard1
+fork = true
+port=10001
+oplogSize=100
+logpath=/opt/mongodb/log/shard10003.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+2) 新建配置文件/opt/mongodb/security/shard20003.conf添加如下内容：
+
+
+dbpath=/data/shard20003
+shardsvr=true
+replSet=shard2
+fork = true
+port=10002
+oplogSize=100
+logpath=/opt/mongodb/log/shard20003.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+
+3) 新建配置文件 /opt/mongodb/security/shard30003.conf添加如下内容：
+
+
+dbpath=/data/shard30003
+shardsvr=true
+replSet=shard3
+fork = true
+port=10003
+oplogSize=100
+logpath=/opt/mongodb/log/shard30003.log
+profile=1
+slowms=5
+rest=true
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+4) 新建配置文件 /opt/mongodb/security/config3.conf添加如下内容：
+
+
+bpath=/data/config3
+configsvr=true
+fork = true
+port=20000
+oplogSize=5
+logpath=/opt/mongodb/log/config3.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+
+5) 新建配置文件 /opt/mongodb/security/mongos3.conf 添加如下内容：
+
+
+configdb=10.15.62.202:20000,10.15.62.203:20000,10.15.62.205:20000
+port=30000
+fork = true
+chunkSize=5
+logpath=/opt/mongodb/log/mongos1.log
+quiet=true
+keyFile=/opt/mongodb/security/mongo.key
+
+
+
+注意：根据mongodb官方配置，在安全auth认证方面，keyFile的优先级高于使用用户和密码认证，在初始化replication set之前需要关闭认证，而且开启了keyFile认证后已经打开了认证，然后添加管理用户，然后在开启keyFile认证即可，Authentication is disabled by default. To enable authentication for a given mongod or mongos instance, use the auth and keyFile configuration settings
+
+初始化之前先关闭keyFile
+
+#sed -i “s/keyFile/#keyFile/”/opt/mongodb/security/*.conf
+
+7.2.4 启动sharding服务：
+l Server1：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard10001.conf
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard20001.conf
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard30001.conf
+
+l Server2：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard10002.conf
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard20002.conf
+# /opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard30002.conf
+
+l Server3：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard10003.conf
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard20003.conf
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/shard30003.conf
+
+7.2.5 启动config服务：
+
+l Server1：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/config1.conf
+
+l Server2：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/config2.conf
+
+l Server3：
+
+#/opt/mongodb/bin/mongod --config=/opt/mongodb/security/config3.conf
+
+7.2.6启动mongos服务：
+
+l Server1：
+
+/opt/mongodb/bin/mongos  --config=/opt/mongodb/security/mongos1.conf
+
+l Server2：
+
+/opt/mongodb/bin/mongos  --config=/opt/mongodb/security/mongos2.conf
+
+l Server3
+
+/opt/mongodb/bin/mongos  --config= /opt/mongodb/security/mongos3.conf
+
+
+
+
+
+7.2.7 初始化replica set
+
+使用mongo连接其中任意一台mongod，这里使用server1：
+
+root@debian:~# /opt/mongodb/bin/mongo 10.15.62.202:10001/admin
+MongoDB shell version: 2.4.6
+connecting to: 10.15.62.202:10001/admin
+> db
+admin
+> config={_id:"shard1",members:[{_id:0,host:"10.15.62.202:10001"},{_id:1,host:"10.15.62.203:10001"},{_id:2,host:"10.15.62.205:10001"}]}
+{
+       "_id" : "shard1",
+       "members" : [
+               {
+                       "_id" : 0,
+                       "host" : "10.15.62.202:10001"
+               },
+               {
+                       "_id" : 1,
+                       "host" : "10.15.62.203:10001"
+               },
+               {
+                       "_id" : 2,
+                       "host" : "10.15.62.205:10001"
+               }
+       ]
+}
+> rs.initiate(config)
+{
+       "info" : "Config now saved locally.  Should come online in about a minute.",
+       "ok" : 1
+}
+> rs.status()
+{
+       "set" : "shard1",
+       "date" : ISODate("2013-09-24T05:12:29Z"),
+       "myState" : 1,
+       "members" : [
+               {
+                       "_id" : 0,
+                       "name" : "10.15.62.202:10001",
+                       "health" : 1,
+                       "state" : 1,
+"stateStr" : "PRIMARY",
+                       "uptime" : 454,
+                       "optime" : Timestamp(1379999452, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:10:52Z"),
+                       "self" : true
+               },
+               {
+                       "_id" : 1,
+                       "name" : "10.15.62.203:10001",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 94,
+                       "optime" : Timestamp(1379999452, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:10:52Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:12:29Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:12:28Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10001"
+               },
+               {
+                       "_id" : 2,
+                       "name" : "10.15.62.205:10001",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 94,
+                       "optime" : Timestamp(1379999452, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:10:52Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:12:29Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:12:29Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10001"
+               }
+       ],
+       "ok" : 1
+}
+shard1:PRIMARY>
+
+
+按照此方式依次添加另外的replication set 副本集：
+
+
+副本二：
+
+root@debian:~# /opt/mongodb/bin/mongo 10.15.62.202:10002/admin
+MongoDB shell version: 2.4.6
+connecting to: 10.15.62.202:10002/admin
+> config={_id:"shard2",members:[{_id:0,host:"10.15.62.202:10002"},{_id:1,host:"10.15.62.203:10002"},{_id:2,host:"10.15.62.205:10002"}]}
+{
+       "_id" : "shard2",
+       "members" : [
+               {
+                       "_id" : 0,
+                       "host" : "10.15.62.202:10002"
+               },
+               {
+                       "_id" : 1,
+                       "host" : "10.15.62.203:10002"
+               },
+               {
+                       "_id" : 2,
+                       "host" : "10.15.62.205:10002"
+               }
+       ]
+}
+> rs.initiate(config)
+{
+       "info" : "Config now saved locally.  Should come online in about a minute.",
+       "ok" : 1
+}
+shard2:PRIMARY> rs.status()
+{
+       "set" : "shard2",
+       "date" : ISODate("2013-09-24T05:30:40Z"),
+       "myState" : 1,
+       "members" : [
+               {
+                       "_id" : 0,
+                       "name" : "10.15.62.202:10002",
+                       "health" : 1,
+                       "state" : 1,
+"stateStr" : "PRIMARY",
+                       "uptime" : 223,
+                       "optime" : Timestamp(1380000589, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:29:49Z"),
+                       "self" : true
+               },
+               {
+                       "_id" : 1,
+                       "name" : "10.15.62.203:10002",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 41,
+                       "optime" : Timestamp(1380000589, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:29:49Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:30:39Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:30:39Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10002"
+               },
+               {
+                       "_id" : 2,
+                       "name" : "10.15.62.205:10002",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 41,
+                       "optime" : Timestamp(1380000589, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:29:49Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:30:39Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:30:39Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10002"
+               }
+       ],
+       "ok" : 1
+}
+shard2:PRIMARY> exit
+
+
+副本三:
+
+root@debian:~# /opt/mongodb/bin/mongo 10.15.62.202:10003/admin
+MongoDB shell version: 2.4.6
+connecting to: 10.15.62.202:10003/admin
+> config={_id:"shard3",members:[{_id:0,host:"10.15.62.202:10003"},{_id:1,host:"10.15.62.203:10003"},{_id:2,host:"10.15.62.205:10003"}]}
+{
+       "_id" : "shard3",
+       "members" : [
+               {
+                       "_id" : 0,
+                       "host" : "10.15.62.202:10003"
+               },
+               {
+                       "_id" : 1,
+                       "host" : "10.15.62.203:10003"
+               },
+               {
+                       "_id" : 2,
+                       "host" : "10.15.62.205:10003"
+               }
+       ]
+}
+> rs.initiate(config)
+{
+       "info" : "Config now saved locally.  Should come online in about a minute.",
+       "ok" : 1
+}
+>
+shard3:PRIMARY> rs.status()
+{
+       "set" : "shard3",
+       "date" : ISODate("2013-09-24T05:42:43Z"),
+       "myState" : 1,
+       "members" : [
+               {
+                       "_id" : 0,
+                       "name" : "10.15.62.202:10003",
+                       "health" : 1,
+                       "state" : 1,
+                       "stateStr" : "PRIMARY",
+                       "uptime" : 930,
+                       "optime" : Timestamp(1380001270, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:41:10Z"),
+                       "self" : true
+               },
+               {
+                       "_id" : 1,
+                       "name" : "10.15.62.203:10003",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 90,
+                       "optime" : Timestamp(1380001270, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:41:10Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:42:43Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:42:41Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10003"
+               },
+               {
+                       "_id" : 2,
+                       "name" : "10.15.62.205:10003",
+                       "health" : 1,
+                       "state" : 2,
+                       "stateStr" : "SECONDARY",
+                       "uptime" : 90,
+                       "optime" : Timestamp(1380001270, 1),
+                       "optimeDate" : ISODate("2013-09-24T05:41:10Z"),
+                       "lastHeartbeat" : ISODate("2013-09-24T05:42:43Z"),
+                       "lastHeartbeatRecv" : ISODate("2013-09-24T05:42:41Z"),
+                       "pingMs" : 0,
+                       "syncingTo" : "10.15.62.202:10003"
+               }
+       ],
+       "ok" : 1
+}shard3:SECONDARY> exit
+
+
+
+
+7.2.8日志查看主从选举过程：
+
+#more /opt/mongodb/log/shard10001.log
+
+Tue Sep 24 13:10:51.831 [conn1] replSet replSetInitiate admin command received from client
+Tue Sep 24 13:10:51.852 [conn1] replSet replSetInitiate config object parses ok, 3 members specified
+Tue Sep 24 13:10:52.154 [conn1] replSet replSetInitiate all members seem up
+Tue Sep 24 13:10:52.154 [conn1] ******
+Tue Sep 24 13:10:52.154 [conn1] creating replication oplog of size: 100MB...
+Tue Sep 24 13:10:52.160 [FileAllocator] allocating new datafile /data/shard10001/local.1, filling with zeroes...
+Tue Sep 24 13:10:52.160 [FileAllocator] creating directory /data/shard10001/_tmp
+Tue Sep 24 13:10:52.175 [FileAllocator] done allocating datafile /data/shard10001/local.1, size: 128MB,  took 0.013 secs
+Tue Sep 24 13:10:52.176 [conn1] ******
+Tue Sep 24 13:10:52.176 [conn1] replSet info saving a newer config version to local.system.replset
+Tue Sep 24 13:10:52.178 [conn1] replSet saveConfigLocally done
+Tue Sep 24 13:10:52.178 [conn1] replSet replSetInitiate config now saved locally.  Should come online in about a minute.
+#初始化开始
+
+Tue Sep 24 13:10:52.178 [conn1] command admin.$cmd command: { replSetInitiate: { _id: "shard1", members: [ { _id: 0.0, host: "10.15.62.202:10001" }, { _id: 1.0, host:
+"10.15.62.203:10001" }, { _id: 2.0, host: "10.15.62.205:10001" } ] } } ntoreturn:1 keyUpdates:0 locks(micros) W:29356 reslen:112 347ms
+
+#成员检测
+
+Tue Sep 24 13:10:55.450 [rsStart] replSet I am 10.15.62.202:10001
+Tue Sep 24 13:10:55.451 [rsStart] replSet STARTUP2
+Tue Sep 24 13:10:55.456 [rsHealthPoll] replSet member 10.15.62.203:10001 is up
+Tue Sep 24 13:10:55.457 [rsHealthPoll] replSet member 10.15.62.205:10001 is up
+
+
+Tue Sep 24 13:10:56.457 [rsSync] replSet SECONDARY
+Tue Sep 24 13:10:57.469 [rsHealthPoll] replset info 10.15.62.205:10001 thinks that we are down
+Tue Sep 24 13:10:57.469 [rsHealthPoll] replSet member 10.15.62.205:10001 is now in state STARTUP2
+Tue Sep 24 13:10:57.470 [rsMgr] not electing self, 10.15.62.205:10001 would veto with 'I don't think 10.15.62.202:10001 is electable'
+Tue Sep 24 13:11:03.473 [rsMgr] replSet info electSelf 0
+Tue Sep 24 13:11:04.459 [rsMgr] replSet PRIMARY
+Tue Sep 24 13:11:05.473 [rsHealthPoll] replset info 10.15.62.203:10001 thinks that we are down
+Tue Sep 24 13:11:05.473 [rsHealthPoll] replSet member 10.15.62.203:10001 is now in state STARTUP2
+Tue Sep 24 13:11:05.473 [rsHealthPoll] replSet member 10.15.62.205:10001 is now in state RECOVERING
+Tue Sep 24 13:11:13.188 [conn7] command admin.$cmd command: { listDatabases: 1 } ntoreturn:1 keyUpdates:0 locks(micros) R:5 r:7 reslen:124 12ms
+Tue Sep 24 13:11:14.146 [conn8] query local.oplog.rs query: { ts: { $gte: Timestamp 1379999452000|1 } } cursorid:1511004138438811 ntoreturn:0 ntoskip:0 nscanned:1 keyU
+pdates:0 locks(micros) r:9293 nreturned:1 reslen:106 9ms
+Tue Sep 24 13:11:15.233 [slaveTracking] build index local.slaves { _id: 1 }
+Tue Sep 24 13:11:15.239 [slaveTracking] build index done.  scanned 0 total records. 0.005 secs
+#主从选举结束
+
+Tue Sep 24 13:11:15.240 [slaveTracking] update local.slaves query: { _id: ObjectId('52411eed2f0c855af923ffb1'), config: { _id: 2, host: "10.15.62.205:10001" }, ns: "lo
+cal.oplog.rs" } update: { $set: { syncedTo: Timestamp 1379999452000|1 } } nscanned:0 nupdated:1 fastmodinsert:1 keyUpdates:0 locks(micros) w:14593 14ms
+Tue Sep 24 13:11:15.478 [rsHealthPoll] replSet member 10.15.62.205:10001 is now in state SECONDARY
+Tue Sep 24 13:11:23.486 [rsHealthPoll] replSet member 10.15.62.203:10001 is now in state RECOVERING
+Tue Sep 24 13:11:25.487 [rsHealthPoll] replSet member 10.15.62.203:10001 is now in state SECONDARY
+
+7.3 添加数据库管理用户，开启路由功能，并且分片：
+
+7.3.1 创建超级用户：
+
+root@debian:~# /opt/mongodb/bin/mongo 10.15.62.202:30000/admin
+MongoDB shell version: 2.4.6
+connecting to: 10.15.62.202:30000/admin
+mongos> db.addUser({user:"clusterAdmin",pwd:"pwd",roles:["clusterAdmin","userAdminAnyDatabase","readWriteAnyDatabase"]});
+{
+       "user" : "clusterAdmin",
+       "pwd" : "6f8d1d5a17d65fd6b632cdb0cb541466",
+       "roles" : [
+               "clusterAdmin",
+               "userAdminAnyDatabase",
+               "readWriteAnyDatabase"
+       ],
+       "_id" : ObjectId("52412ec4eb1bcd32b5a25ad2")
+}
+
+注意：userAdminAnyDatabase角色只能访问admin数据库，主要用于添加修改其他用户角色，无法认证通过其它数据库，且删除shard中的成员时认证通不过，这个在后面会有验证
+
+7.3.2 开启mongo路由功能，分片
+
+mongos> db
+admin
+mongos> db.runCommand({addshard:"shard1/10.15.62.202:10001,10.15.62.203:10001,10.15.62.205:10001",name:"shard1",maxsize:20480})
+{ "shardAdded" : "shard1", "ok" : 1 }
+mongos> db.runCommand({addshard:"shard2/10.15.62.202:10002,10.15.62.203:10002,10.15.62.205:10002",name:"shard2",maxsize:20480})
+{ "shardAdded" : "shard2", "ok" : 1 }
+mongos>
+mongos> db.runCommand({addshard:"shard3/10.15.62.202:10003,10.15.62.203:10003,10.15.62.205:10003",name:"shard3",maxsize:20480})
+{ "shardAdded" : "shard3", "ok" : 1 }
+mongos>
+
+7.3.3检查分片情况：
+
+mongos> db.runCommand({listshards:1})
+{
+       "shards" : [
+               {
+                       "_id" : "shard1",
+                       "host" : "shard1/10.15.62.202:10001,10.15.62.203:10001,10.15.62.205:10001"
+               },
+               {
+                       "_id" : "shard2",
+                       "host" : "shard2/10.15.62.202:10002,10.15.62.203:10002,10.15.62.205:10002"
+               },
+               {
+                       "_id" : "shard3",
+                       "host" : "shard3/10.15.62.202:10003,10.15.62.203:10003,10.15.62.205:10003"
+               }
+       ],
+       "ok" : 1
+}
+
+可以看到3个分片信息正常
+
+7.3.4 激活数据库分片：
+
+> db.runCommand( { enablesharding : “<dbname>” } );
+
+通过执行以上命令，可以让数据库跨shard，如果不执行这步，数据库只会存放在一个shard，一旦激活数据库分片，数据库中不同的collection将被存放在不同的shard上，但一个collection仍旧存放在同一个shard上，要使单个collection也分片，还需单独对collection作些操作
+
+7.3.5  Collecton分片
+
+要使单个collection也分片存储，需要给collection指定一个分片key，通过以下命令操作：
+> db.runCommand( { shardcollection : “<namespace>”,key : <shardkeypatternobject> });
+
+
+注：
+a. 分片的collection系统会自动创建一个索引（也可用户提前创建好）
+b. 分片的collection只能有一个在分片key上的唯一索引，其它唯一索引不被允许
+
+本文出自 “运维那点事” 博客，请务必保留此出处http://yxmsama.blog.51cto.com/2993616/1378552
