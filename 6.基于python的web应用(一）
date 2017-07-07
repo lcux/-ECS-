@@ -1,0 +1,922 @@
+1 操作系统版本：3
+2 服务器前期准备:3
+2.1 网络设置：3
+2.2  配置apt源sources.list4
+2.3 安装常用软件5
+2.4 系统内核优化：5
+3 程序部署：5
+3.1安装setuptools6
+3.2 Supervisor安装：6
+3.2.1 安装：6
+3.2.2生成配置文件：7
+3.2.3修改配置文件：7
+3.3编写一个测试案例8
+3.4启动supervisor服务：9
+3.5管理python进程：10
+3.6测试10
+3.7 编写tornado启动脚本：11
+4 Nginx安装，配置，调优：13
+4.1 安装13
+4.2 配置，优化。13
+4.2.1 主配置文件 nginx.conf13
+4.2.2 default配置文件16
+4.3 启动与停止：19
+4.4访问测试：20
+4.5 Nginx 支持ssl认证：20
+4.5.1 单向认证：20
+4.5.2 双向认证：22
+5 缓存加速器varnish安装26
+5.1 安装26
+5.2 修改主配置26
+5.3 原理：31
+5.4 VCL内置函数：32
+5.5 VCL内置全局变量：34
+5.6 副配置文件调整35
+5.7 启动程序：35
+5.8访问测试：36
+5.9 Varnish 状态分析：36
+5.10 管理varnish日志：38
+5.11 管理varnish缓存39
+6 Mongodb安装与连接测试：42
+6.1 安装42
+6 .3 安装mongodb的python驱动：42
+6.4 python连接测试42
+7  Mongodb 数据分片存储：44
+7.1 架构44
+7.1.1 构建Sharding需要三种角色44
+7.1.2架构图：45
+7.2 切片准备：46
+7.2.1安装46
+7.2.2 创建数据库和日志目录：47
+7.2.3 创建mongod sharding启动文件：47
+7.2.4 启动sharding服务：53
+7.2.5 启动config服务：53
+7.2.6启动mongos服务：54
+7.2.7 初始化replica set54
+7.2.8日志查看主从选举过程：60
+7.3 添加数据库管理用户，开启路由功能，并且分片：62
+7.3.1 创建超级用户：62
+7.3.2 开启mongo路由功能，分片62
+7.3.3检查分片情况：63
+7.3.4 激活数据库分片：64
+7.3.5  Collecton分片64
+7.3.6 开启认证64
+7.3.7测试分片实例：65
+7.4增加移除sharding节点70
+7.4.1  增加sharding节点：70
+7.4.2  增加节点：71
+7.5增加移除切片rep-set：73
+7.6 Replica Set 节点切换和 failover78
+7.7关于sharding的几点说明：79
+7.8  Mogodb sharding常见管理操作：79
+7.9  Mongodb运行监控：80
+8 Keepalive,lvs实现mongos路由冗余83
+8.1负载均衡的算法：83
+8.2 LVS目前有三种IP负载均衡技术85
+8.3架构：86
+8.4安装ipvsadm：86
+8.4.1 Ipvsadm软件安装87
+8.4.2 配置文件修改87
+8.4.3 查看系统是否加载此模块：87
+8.5 安装keepalived：88
+8.5.1 安装keepalived所依赖的一些库文件：88
+8.5.2 选择合适的keepalived版本88
+8.5.3 安装程序88
+8.5.4 修改启动脚本89
+8.5.5 启动服务，测试：90
+8.6 修改配置文件满足负载均衡和HA90
+8-7 查看启动过程和测试负载情况93
+8-7-1查看启动日志：93
+8-7-2宕机测试95
+8-8  后端真实服务器进行网络设置并对外提供服务95
+
+1 操作系统版本：
+root@debian:~# cat /etc/debian_version
+7.1
+root@debian:~#
+
+2 服务器前期准备:
+
+由于安装系统的时候只安装了ssh服务，需要在安装后安装一些使用的开发包和设置，方便维护
+
+2.1 网络设置：
+
+vi /etc/network/interfaces
+
+
+allow-hotplug eth0
+auto eth0
+iface eth0 inet static
+address 10.15.62.202
+netmask 255.255.255.0
+gateway 10.15.62.254
+2.2  配置apt源sources.list
+
+这个是我配置的使用了本地源和163的镜像源
+
+#
+
+# deb cdrom:[Debian GNU/Linux 7.1.0 _Wheezy_ - Official amd64 DVD Binary-1 20130615-23:06]/ wheezy contrib main
+#local
+deb file:///mnt/iso1 wheezy contrib main
+
+#deb cdrom:[Debian GNU/Linux 7.1.0 _Wheezy_ - Official amd64 DVD Binary-1 20130615-23:06]/ wheezy contrib main（注释掉）
+
+#deb http://security.debian.org/ wheezy/updates main contrib
+#deb-src http://security.debian.org/ wheezy/updates main contrib
+#163
+deb http://mirrors.163.com/debian wheezy main contrib non-free  
+deb http://mirrors.163.com/debian wheezy-proposed-updates main contrib non-free  
+deb-src http://mirrors.163.com/debian wheezy main non-free contrib  
+deb-src http://mirrors.163.com/debian wheezy-proposed-updates main contrib non-free  
+
+# wheezy-updates, previously known as 'volatile'
+# A network mirror was not selected during install.  The following entries
+# are provided as examples, but you should amend them as appropriate
+# for your mirror of choice.
+#
+# deb http://ftp.debian.org/debian/ wheezy-updates main contrib
+# deb-src http://ftp.debian.org/debian/ wheezy-updates main contrib
+
+
+
+然后更新数据源：
+
+#apt-get update
+
+
+2.3 安装常用软件
+vim，gcc，g++,python
+注意：由于系统使用的vi不方便自己的操作习惯，故安装vim
+
+#apt-get install gcc
+#apt-get install g++
+#apt-get install vim
+#apt-get install python
+
+
+2.4 系统内核优化：
+
+echo net.ipv4.tcp_max_tw_buckets = 6000 >> /etc/sysctl.conf
+echo net.ipv4.ip_local_port_range = 1024 65000 >>/etc/sysctl.conf
+echo net.ipv4.tcp_tw_recycle = 1 >>/etc/sysctl.conf
+echo net.ipv4.tcp_tw_reuse = 1 >>/etc/sysctl.conf
+echo net.core.somaxconn = 262144 >>/etc/sysctl.conf
+echo net.ipv4.tcp_timestamps = 0  >>/etc/sysctl.conf
+echo net.ipv4.tcp_synack_retries = 1  >>/etc/sysctl.conf
+echo net.ipv4.tcp_syn_retries = 1 >>/etc/sysctl.conf
+echo net.ipv4.tcp_keepalive_time = 30 >>/etc/sysctl.conf
+echo fs.file-max = 65535 >>/etc/sysctl.conf
+sysctl -p  （配置生效）
+
+
+echo '*       soft    nofile  65536' >>/etc/security/limits.conf
+echo '*       hard    nofile  65536' >>/etc/security/limits.conf
+echo '*       soft    nproc   8192'  >>/etc/security/limits.conf
+echo '*       hard    nproc   8192'  >>/etc/security/limits.conf
+
+备注：打开连接数重启后生效，以上参数具体含义这里不在说明
+
+
+3 程序部署：
+
+安装tornado:
+
+#tar -zxvf tornado-3.1.1.tar.gz -C /usr/local
+#mv tornado-3.1.1 tornado
+#cd tornado
+# python setup.py build
+#python setup.py install
+
+
+3.1安装setuptools
+
+说明：python的加强包，注意安装是选择与python的版本一致，我这里安装的python版本为2.7.3-4：
+
+spacer.gif
+
+开始安装：
+#sh setuptools-0.6c11-py2.7.egg
+
+3.2 Supervisor安装：
+
+说明：supervisor是用 pathon写的一个工具，是比较好的服务管理工具，一个很重要的功能就是监控服务器主要服务，并且在出现问题时进行重启
+
+3.2.1 安装：
+
+#easy_install supervisor
+
+3.2.2生成配置文件：
+
+# echo_supervisord_conf > /etc/supervisord.conf
+
+3.2.3修改配置文件：
+
+修改/etc/supervisord.conf文件  添加
+
+[group:tornado]
+programs=tornado-8001,tornado-8002,tornado-8003,tornado-8004
+
+[program:tornado-8001]
+command=python /var/www/hello.py -port=8001
+process_name=tornado-8001
+directory=/var/www/
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/tornado/tornado-8001.log
+stdout_logfile_maxbytes=5000MB
+stdout_logfile_backups=50
+stdout_capture_maxbytes=1MB
+stdout_events_enabled=false
+loglevel=warn
+
+[program:tornado-8002]
+process_name=tornado-8002
+command=python /var/www/hello.py -port=8002
+directory=/var/www/
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/tornado/tornado-8002.log
+stdout_logfile_maxbytes=5000MB
+stdout_logfile_backups=50
+stdout_capture_maxbytes=1MB
+stdout_events_enabled=false
+loglevel=warn
+
+[program:tornado-8003]
+process_name=tornado-8003
+command=python /var/www/hello.py -port=8003
+directory=/var/www/
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/tornado/tornado-8003.log
+stdout_logfile_maxbytes=5000MB
+stdout_logfile_backups=50
+stdout_capture_maxbytes=1MB
+stdout_events_enabled=false
+loglevel=warn
+
+[program:tornado-8004]
+process_name=tornado-8004
+command=python /var/www/hello.py -port=8004
+directory=/var/www/
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/var/log/tornado/tornado-8004.log
+stdout_logfile_maxbytes=5000MB
+stdout_logfile_backups=50
+stdout_capture_maxbytes=1MB
+stdout_events_enabled=false
+
+注意：这里开启了四个进程（防止单个进程挂掉造成宕机，进程数量和cpu核心一致即可），程序的入口为hello.py
+
+
+3.3编写一个测试案例
+
+命名为hello.py，保存路径：/var/www/
+
+#coding=utf-8
+
+import sys
+
+import tornado.httpserver
+
+import tornado.ioloop
+
+import tornado.options
+
+import tornado.web
+
+from tornado.options import define, options
+
+#define("port", default=8888, help="run on the given port", type=int)
+
+port = int(sys.argv[1].split('=')[1])
+
+if port == 0:
+
+   exit(1)
+
+class MainHandler(tornado.web.RequestHandler):
+
+   def get(self):
+
+      content = "hello ,world"
+
+      self.write(content)
+
+def main():
+
+   application = tornado.web.Application([
+
+       (r"/", MainHandler),
+
+   ])
+
+   http_server = tornado.httpserver.HTTPServer(application)
+
+   http_server.listen(port)
+
+   tornado.ioloop.IOLoop.instance().start()
+
+if __name__ == "__main__":
+
+   main()
+
+
+3.4启动supervisor服务：
+
+#supervisord -c /etc/supervisord.conf
+
+
+3.5管理python进程：
+
+root@debian:~# supervisorctl
+tornado:tornado-8001             RUNNING    pid 8706, uptime 0:42:49
+tornado:tornado-8002             RUNNING    pid 8707, uptime 0:42:49
+tornado:tornado-8003             RUNNING    pid 8708, uptime 0:42:49
+tornado:tornado-8004             RUNNING    pid 8705, uptime 0:42:49
+supervisor> status/stop/start/restart （状态，关闭，启动，重启）
+
+查看端口是否侦听：
+
+spacer.gif
+和定义端口一直：
+
+3.6测试
+使用IE访问：
+
+spacer.gif
+
+
+正常访问。
+
+3.7 编写tornado启动脚本：
+
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:             supervisord
+# Required-Start:       $remote_fs $syslog
+# Required-Stop:        $remote_fs $syslog
+# Default-Start:        2 3 4 5
+# Default-Stop:
+# Short-Description:    OpenBSD Secure Shell server
+### END INIT INFO
+
+
+# description: Supervisor Server
+# processname: supervisord
+
+set -e
+
+RETVAL=0
+DAEMON="/usr/local/bin/supervisord"
+MANAGER="/usr/local/bin/supervisorctl"
+CONFIGFILE="/etc/supervisord.conf"
+
+test -x "${DAEMON}" || exit 0
+
+. /lib/lsb/init-functions
+
+START()
+{
+       daemon_pid=$(/bin/ps -ef|/bin/grep /usr/local/bin/supervisord|/bin/grep -v "grep" |/usr/bin/awk '{print $2}')
+       if ( [ -z ${daemon_pid}] ) then
+               log_daemon_msg "Starting periodic command scheduler" "supervisord"
+               $DAEMON -c $CONFIGFILE
+               RETVAL=$?
+               log_end_msg $RETVAL
+       else
+               $MANAGER start all
+       fi
+}
+
+STOP()
+{
+       daemon_pid=$(ps -ef|grep /usr/local/bin/supervisord|grep -v grep |awk '{print $2}')
+       log_daemon_msg "Stopping periodic command scheduler:supervisord"
+       $MANAGER stop all
+       /bin/kill -9 ${daemon_pid}
+       RETVAL=$?
+       log_end_msg $RETVAL
+}
+
+case "$1" in
+
+ start)
+   START
+ ;;
+
+ stop)
+   STOP
+ ;;
+
+ status)
+       $DAEMON status
+ ;;
+
+ restart)
+   stop
+   start
+ ;;
+
+ *)
+   echo "Usage: $0 {start|stop|restart|status}"
+ ;;
+
+esac
+
+
+
+注意：跑脚本的时候可能会提示：Unlinking stale socket /tmp/supervisor.sock，这个时候需要安装python的功能组件python-meld3,安装的时候需要先停掉python进程，不然会安装失败
+#apt-get install python-meld3
+
+将supervisord加入到系统服务：
+
+
+
+备注，到此完成python环境的整体搭建
+
+
+4 Nginx安装，配置，调优：
+4.1 安装
+
+#apt-get install nginx
+
+这里安装的nginx版本为：
+root@debian:~# nginx -v
+nginx version: nginx/1.2.1
+root@debian:~#
+
+4.2 配置，优化。
+
+红色部分为修改部分，具体优化参数，这里不在解释。
+
+4.2.1 主配置文件 nginx.conf
+
+
+user root;
+worker_processes 4;
+worker_cpu_affinity 0001 0010 0100 1000;
+pid /var/run/nginx.pid;
+worker_rlimit_nofile 65535;
+
+events {
+worker_connections 8192;
+       use epoll;
+       # multi_accept on;
+}
+
+http {
+
+       ##
+       # Basic Settings
+       ##
+
+sendfile on;
+       tcp_nopush on;
+       tcp_nodelay on;
+       keepalive_timeout 65;
+       types_hash_max_size 2048;
+       server_tokens off;
+
+        server_names_hash_bucket_size 64;
+        server_name_in_redirect off;
+
+       include /etc/nginx/mime.types;
+       default_type application/octet-stream;
+
+       ##
+       # Logging Settings
+       ##
+
+       access_log /var/log/nginx/access.log;
+       error_log /var/log/nginx/error.log;
+
+       ##
+       # Gzip Settings
+       ##
+
+       gzip on;
+       gzip_disable "msie6";
+
+gzip_vary on;
+       gzip_proxied any;
+       gzip_comp_level 6;
+       gzip_buffers 16 8k;
+       gzip_http_version 1.1;
+       gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+
+
+       client_header_buffer_size 2k;
+       large_client_header_buffers 4 4k;
+       client_max_body_size 8m;
+
+       ##
+       # nginx-naxsi config
+       ##
+       # Uncomment it if you installed nginx-naxsi
+       ##
+
+       #include /etc/nginx/naxsi_core.rules;
+
+       ##
+       # nginx-passenger config
+       ##
+       # Uncomment it if you installed nginx-passenger
+       ##
+
+       #passenger_root /usr;
+       #passenger_ruby /usr/bin/ruby;
+
+       ##
+       # Virtual Host Configs
+       ##
+
+       include /etc/nginx/conf.d/*.conf;
+       include /etc/nginx/sites-enabled/*;
+}
+
+
+#mail {
+#       # See sample authentication script at:
+#       # http://wiki.nginx.org/ImapAuthenticateWithApachePhpScript
+#
+#       # auth_http localhost/auth.php;
+#       # pop3_capabilities "TOP" "USER";
+#       # imap_capabilities "IMAP4rev1" "UIDPLUS";
+#
+#       server {
+#               listen     localhost:110;
+#               protocol   pop3;
+#               proxy      on;
+#       }
+#
+#       server {
+#               listen     localhost:143;
+#               protocol   imap;
+#               proxy      on;
+#       }
+#}
+
+
+
+4.2.2 default配置文件
+
+
+
+# You may add here your
+# server {
+#       ...
+# }
+# statements for each of your virtual hosts to this file
+
+##
+# You should look at the following URL's in order to grasp a solid understanding
+# of Nginx configuration files in order to fully unleash the power of Nginx.
+# http://wiki.nginx.org/Pitfalls
+# http://wiki.nginx.org/QuickStart
+# http://wiki.nginx.org/Configuration
+#
+# Generally, you will want to move this file somewhere, and start with a clean
+# file but keep this around for reference. Or just disable in sites-enabled.
+#
+# Please see /usr/share/doc/nginx-doc/examples/ for more detailed examples.
+##
+upstream tornado {
+       server 127.0.0.1:8001;
+       server 127.0.0.1:8002;
+       server 127.0.0.1:8003;
+       server 127.0.0.1:8004;
+
+       }
+
+server {
+listen   80; ## listen for ipv4; this line is default and implied
+       #listen   [::]:80 default_server ipv6only=on; ## listen for ipv6
+
+root /var/www;
+
+
+       # Make site accessible from http://localhost/
+       server_name localhost;
+
+location / {
+           proxy_pass_header Server;
+
+           proxy_set_header Host $http_host;
+
+           proxy_redirect off;
+
+           proxy_set_header X-Real-IP $remote_addr;
+
+           proxy_set_header X-Scheme $scheme;
+
+           proxy_pass http://tornado;
+       }
+
+location /doc/ {
+               alias /usr/share/doc/;
+               autoindex on;
+               allow 10.15.62.200;
+               allow ::1;
+               deny all;
+       }
+
+       location /status/ {
+               stub_status on;
+               access_log off;
+               allow 10.15.62.200;
+               deny all;
+       }
+
+       # Only for nginx-naxsi used with nginx-naxsi-ui : process denied requests
+       #location /RequestDenied {
+       #       proxy_pass http://127.0.0.1:8080;    
+       #}
+
+
+       #error_page 404 /404.html;
+
+       # redirect server error pages to the static page /50x.html
+       #
+       #error_page 500 502 503 504 /50x.html;
+       #location = /50x.html {
+       #       root /usr/share/nginx/www;
+       #}
+
+       # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000
+       #
+       #location ~ \.php$ {
+       #       fastcgi_split_path_info ^(.+\.php)(/.+)$;
+       #       # NOTE: You should have "cgi.fix_pathinfo = 0;" in php.ini
+       #
+       #       # With php5-cgi alone:
+       #       fastcgi_pass 127.0.0.1:9000;
+       #       # With php5-fpm:
+       #       fastcgi_pass unix:/var/run/php5-fpm.sock;
+       #       fastcgi_index index.php;
+       #       include fastcgi_params;
+       #}
+
+       # deny access to .htaccess files, if Apache's document root
+       # concurs with nginx's one
+       #
+       #location ~ /\.ht {
+       #       deny all;
+       #}
+}
+
+
+# another virtual host using mix of IP-, name-, and port-based configuration
+#
+#server {
+#       listen 8000;
+#       listen somename:8080;
+#       server_name somename alias another.alias;
+#       root html;
+#       index index.html index.htm;
+#
+#       location / {
+#               try_files $uri $uri/ =404;
+#       }
+#}
+
+
+# HTTPS server
+#
+#server {
+#       listen 443;
+#       server_name localhost;
+#
+#       root html;
+#       index index.html index.htm;
+#
+#       ssl on;
+#       ssl_certificate cert.pem;
+#       ssl_certificate_key cert.key;
+#
+#       ssl_session_timeout 5m;
+#
+#       ssl_protocols SSLv3 TLSv1;
+#       ssl_ciphers ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv3:+EXP;
+#       ssl_prefer_server_ciphers on;
+#
+#       location / {
+#               try_files $uri $uri/ =404;
+#       }
+#}
+
+4.3 启动与停止：
+#service nginx start
+#service nginx  stop
+
+4.4访问测试：
+
+spacer.gif
+
+访问正常，完成nginx反向代理
+
+4.5 Nginx 支持ssl认证：
+
+4.5.1 单向认证：
+
+①　 生成一个加密密钥：
+
+#openssl genrsa -des3 -out server.key 2048
+
+加密为2048位，加密方式为des3,生成加密key的时候会要求你输入加密密码，这里使用123456，但是在每次使用这个密钥去加密生成证书的时候就会提示输入你输入密码，比较麻烦，可以使用命令： #openssl -in server.key  -out server.key 去掉加密密码
+
+②　 生成一个证书请求：
+
+#openssl req -new -key server.key -out server.csr
+
+会提示你输入国家，省份，地区等信息，email 一定要是你的域名后缀的你可以拿着这个文件去数字证书颁发机构（即CA）申请一个数字证书。
+
+③　 签名证书：
+
+这里是自己做测试内部使用，可以采用openssl自签证书
+
+#openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+
+注意：将生成的key和证书放到nginx需要调用的目录
+
+④　修改nginx配置：加入如下代码：
+
+server {
+       listen 443 ;
+       server_name debian;
+
+       root /var/www;
+       index index.html index.htm;
+
+       ssl on;
+#服务器证书文件
+       ssl_certificate ssl/server.crt;
+#服务器加密文件
+       ssl_certificate_key ssl/server.key;
+#ssl会保持时间
+       ssl_session_timeout 5m;
+
+       ssl_protocols SSLv3 TLSv1;
+       ssl_ciphers ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv3:+EXP;
+       ssl_prefer_server_ciphers on;
+
+       location / {
+#如果页面不存在返回404
+               try_files $uri $uri/ =404;
+       }
+}
+
+⑤　 重启nginx
+
+#service nginx restart
+
+⑥　 测试访问：
+
+spacer.gif
+
+看到是可以正常访问的，只是证书不被认可
+
+4.5.2 双向认证：
+
+（一）在nginx目录下创建ca文件夹，进入ca：
+
+#mkdir /etc/nginx/ca
+#cd /etc/nginx/ca
+#mkdir newcerts private conf server
+
+说明：其中newcerts子目录将存放CA签署（颁发）过的数字证书（证书备份目录）。而private目录用于存放CA的私钥。目录conf只是用于存放一些简化参数用的配置文件，server存放服务器证书文件。
+
+（二）在nginx的conf目录创建文件openssl.conf配置文件，内容如下：
+
+[ ca ]  
+default_ca      = foo                   # The default ca section  
+
+[ foo ]  
+dir            = /etc/nginx/ca         # top dir  
+database       = /etc/nginx/ca/index.txt          # index file.  
+new_certs_dir  = /etc/nginx/ca/newcerts           # new certs dir  
+
+certificate    = /etc/nginx/ca/private/ca.crt         # The CA cert  
+serial         = /etc/nginx/ca/serial             # serial no file  
+private_key    = /etc/nginx/ca/private/ca.key  # CA private key  
+RANDFILE       =/etc/nginx/ca/private/.rand      # random number file  
+
+default_days   = 365                     # how long to certify for  
+default_crl_days= 30                     # how long before next CRL  
+default_md     = md5                     # message digest method to use  
+unique_subject = no                      # Set to 'no' to allow creation of  
+                                        # several ctificates with same subject.  
+policy         = policy_any              # default policy  
+
+[ policy_any ]  
+countryName = match  
+stateOrProvinceName = match  
+organizationName = match  
+organizationalUnitName = match  
+localityName            = optional  
+commonName              = supplied  
+emailAddress            = optional  
+
+
+（三）使用脚本创建证书
+下面的几个脚本都放在nginx/ca/目录下， 创建一个新的CA根证书
+new_ca.sh 内容如下：
+
+# Create us a key. Don't bother putting a password on it since you will need it to start apache. If you have a better work around I'd love to hear it.  
+openssl genrsa -out server/server.key  
+# Take our key and create a Certificate Signing Request for it.  
+openssl req -new -key server/server.key -out server/server.csr  
+# Sign this bastard key with our bastard CA key.  
+openssl ca -in server/server.csr -cert private/ca.crt -keyfile private/ca.key -out server/server.crt -config "/etc/nginx/ca/conf/openssl.conf"  
+执行 #sh new_ca.sh生成新的CA证书
+
+（四）生成服务器证书的脚本。
+
+new_server.sh内容如下：
+
+# Create us a key. Don't bother putting a password on it since you will need it to start apache. If you have a better work around I'd love to hear it.  
+openssl genrsa -out server/server.key  
+# Take our key and create a Certificate Signing Request for it.  
+openssl req -new -key server/server.key -out server/server.csr  
+# Sign this bastard key with our bastard CA key.  
+openssl ca -in server/server.csr -cert private/ca.crt -keyfile private/ca.key -out server/server.crt -config "/etc/nginx/ca/conf/openssl.conf"  
+
+执行 #sh new_server.sh生成新服务器的证书
+
+（五）    配置 nginx的ssl支持：
+
+server {
+       listen 443 ;
+       server_name debian;
+
+       root /var/www;
+       index index.html index.htm;
+
+       ssl on;
+ssl_certificate /etc/nginx/ca/server/server.crt;
+       ssl_certificate_key /etc/nginx/ca/server/server.key;
+#客户端侧证书
+       ssl_client_certificate /etc/nginx/ca/private/ca.crt;
+
+       ssl_session_timeout 5m;
+
+       ssl_protocols SSLv3 TLSv1;
+       ssl_ciphers ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv3:+EXP;
+       ssl_prefer_server_ciphers on;
+
+       location / {
+               try_files $uri $uri/ =404;
+       }
+}
+
+（六）启动nginx ,等待客户连接
+
+如果此时连接服务器，将提示400 Bad request certification的错误，故还需要生成客户端证书。
+
+服务器后台访问日志也可以看到相应信息：
+
+10.15.62.200 - - [21/Sep/2013:00:39:31 +0800] "-" 400 0 "-" "-"
+10.15.62.200 - - [21/Sep/2013:00:39:31 +0800] "-" 400 0 "-" "-"
+10.15.62.200 - - [21/Sep/2013:00:39:31 +0800] "-" 400 0 "-" "-"
+这是因为客户端未安装自身的证书，造成验证失败
+
+（七）新建一个脚本生成客户端证书：
+
+new_user.sh 内容如下：
+
+#!/bin/sh  
+# The base of where our SSL stuff lives.  
+base="/etc/nginx/ca"  
+# Were we would like to store keys... in this case we take the username given to us and store everything there.  
+mkdir -p $base/users/  
+
+# Let's create us a key for this user... yeah not sure why people want to use DES3 but at least let's make us a nice big key.  
+openssl genrsa -des3 -out $base/users/client.key 1024  
+# Create a Certificate Signing Request for said key.  
+openssl req -new -key $base/users/client.key -out $base/users/client.csr  
+# Sign the key with our CA's key and cert and create the user's certificate out of it.  
+openssl ca -in $base/users/client.csr -cert $base/private/ca.crt -keyfile $base/private/ca.key -out $base/users/client.crt -config "/etc/nginx/ca/conf/openssl.conf"  
+
+# This is the tricky bit... convert the certificate into a form that most browsers will understand PKCS12 to be specific.  
+# The export password is the password used for the browser to extract the bits it needs and insert the key into the user's keychain.  
+# Take the same precaution with the export password that would take with any other password based authentication scheme.  
+openssl pkcs12 -export -clcerts -in $base/users/client.crt -inkey $base/users/client.key -out $base/users/client.p12  
+
+  执行 #shnew_user.sh生成一个 client证书。
+
+
+      按照提示一步一步来，这里要注意的是客户证书的几个项目要和根证书匹配。
+      也就是前面配置的:
+            countryName = match
+            stateOrProvinceName = match
+            organizationName = match
+            organizationalUnitName = match
+
+       不一致的话无法生成最后的客户证书，证书生成后，客户端导入证书浏览器，即可打开网站。
+
+注意，客户端导入的证书为：ca.crt(根证书)  client.crt（客户端证书）
+
+客户端测试访问，正常
