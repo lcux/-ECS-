@@ -1,0 +1,936 @@
+7.3.6 开启认证
+#sed -i “s/#keyFile/keyFile/”/opt/mongodb/security/*.conf
+
+重启mongod，mongios服务：
+
+
+
+l Server1 ：
+
+# pkill mongod
+# pkill mongios
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard10001.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard20001.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard30001.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/config1.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/mongos1.conf
+#/opt/mongodb/bin/mongos -f /opt/mongodb/security/mongos1.conf
+
+l Server2：
+
+# pkill mongod
+# pkill mongios
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard10002.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard20002.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard30002.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/config2.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/mongos2.conf
+#/opt/mongodb/bin/mongos -f /opt/mongodb/security/mongos2.conf
+
+l Server3 ：
+
+# pkill mongod
+# pkill mongios
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard10003.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard20003.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/shard30003.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/config3.conf
+#/opt/mongodb/bin/mongod -f /opt/mongodb/security/mongos3.conf
+#/opt/mongodb/bin/mongos -f /opt/mongodb/security/mongos3.conf
+
+
+
+
+7.3.7测试分片实例：
+
+
+
+root@debian:~# /opt/mongodb/bin/mongo 10.15.62.202:30000/admin
+MongoDB shell version: 2.4.6
+connecting to: 10.15.62.202:30000/admin
+> db.auth("clusterAdmin","pwd")
+1
+mongos> show collections
+system.indexes
+system.users
+mongos> use test
+switched to db test
+mongos> show collections
+
+#对test数据库新建用户：
+
+mongos> db.addUser({user:"test",pwd:"123456",roles:["readWrite","dbAdmin"]})
+{
+       "user" : "test",
+       "pwd" : "c8ef9e7ab00406e84cfa807ec082f59e",
+       "roles" : [
+               "readWrite",
+               "dbAdmin"
+       ],
+       "_id" : ObjectId("5241e3ffdaf821e8d4c5b9e7")
+}
+mongos>
+mongos> show collections
+system.indexes
+System.users
+
+#查看users集合中的内容：
+
+mongos> db.system.users.find()
+{ "_id" : ObjectId("5241e3ffdaf821e8d4c5b9e7"), "user" : "test", "pwd" : "c8ef9e7ab00406e84cfa807ec082f59e", "roles" : [  "readWrite",  "dbAdmin" ] }
+mongos> db
+test
+mongos> use admin
+switched to db admin
+
+#对数据库分片，test代表要分片的数据库
+
+mongos> db.runCommand({enablesharding:"test"})
+{ "ok" : 1 }
+
+# 对集合分片，在test数据库的users表上分片,同时指明shard key是id这一列
+mongos> db.runCommand({shardcollection:"test.users",key:{_id:1}})
+{ "collectionsharded" : "test.users", "ok" : 1 }
+mongos> db
+admin
+mongos> use test
+switched to db test
+mongos> show collections
+system.indexes
+system.profile
+system.users
+Users
+
+#循环向test.users表中插入30万条数据,然后使用命令db.users.stats()查看表的分片情况.
+mongos> for(var i=1;i<300000;i++) db.users.insert({name:"user"+i,age:i,email:"yanxiaoming@qq.com"})
+mongos> show collections
+system.indexes
+system.profile
+system.users
+Users
+
+#查看结果集
+mongos> db.users.find()
+{ "_id" : ObjectId("5241e618daf821e8d4c707a5"), "name" : "user85438", "age" : 85438, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45a"), "name" : "user6771", "age" : 6771, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9e8"), "name" : "user1", "age" : 1, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707a6"), "name" : "user85439", "age" : 85439, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45b"), "name" : "user6772", "age" : 6772, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9e9"), "name" : "user2", "age" : 2, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707a7"), "name" : "user85440", "age" : 85440, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45c"), "name" : "user6773", "age" : 6773, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9ea"), "name" : "user3", "age" : 3, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707a8"), "name" : "user85441", "age" : 85441, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45d"), "name" : "user6774", "age" : 6774, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9eb"), "name" : "user4", "age" : 4, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707a9"), "name" : "user85442", "age" : 85442, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45e"), "name" : "user6775", "age" : 6775, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9ec"), "name" : "user5", "age" : 5, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707aa"), "name" : "user85443", "age" : 85443, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d45f"), "name" : "user6776", "age" : 6776, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e5ffdaf821e8d4c5b9ed"), "name" : "user6", "age" : 6, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e618daf821e8d4c707ab"), "name" : "user85444", "age" : 85444, "email" : "yanxiaoming@qq.com" }
+{ "_id" : ObjectId("5241e600daf821e8d4c5d460"), "name" : "user6777", "age" : 6777, "email" : "yanxiaoming@qq.com" }
+Type "it" for more
+mongos> db.users.stats()
+{
+       "sharded" : true,
+       "ns" : "test.users",
+       "count" : 299999,
+       "numExtents" : 20,
+       "size" : 26399928,
+       "storageSize" : 60162048,
+       "totalIndexSize" : 10808672,
+       "indexSizes" : {
+               "_id_" : 10808672
+       },
+       "avgObjSize" : 88.00005333351112,
+       "nindexes" : 1,
+       "nchunks" : 14,
+       "shards" : {
+               "shard1" : {
+                       "ns" : "test.users",
+"count" : 60185,
+                       "size" : 5296288,
+                       "avgObjSize" : 88.00013292348592,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 2984240,
+                       "indexSizes" : {
+                               "_id_" : 2984240
+                       },
+                       "ok" : 1
+               },
+               "shard2" : {
+                       "ns" : "test.users",
+"count" : 200481,
+                       "size" : 17642328,
+                       "avgObjSize" : 88,
+                       "storageSize" : 37797888,
+                       "numExtents" : 8,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 15290368,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 6540800,
+                       "indexSizes" : {
+                               "_id_" : 6540800
+                       },
+                       "ok" : 1
+               },
+               "shard3" : {
+                       "ns" : "test.users",
+"count" : 39333,
+                       "size" : 3461312,
+                       "avgObjSize" : 88.00020339155417,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 1283632,
+                       "indexSizes" : {
+                               "_id_" : 1283632
+                       },
+                       "ok" : 1
+               }
+       },
+       "ok" : 1
+}
+mongos>
+
+7.4增加移除sharding节点
+
+7.4.1  增加sharding节点：
+
+1   查看当前分分片信息：
+
+spacer.gif
+
+
+可以看到：存在3个切片，每个切片中存在3个节点
+
+2 删除运行中的节点：
+
+         这里操作切片为：shard1 中的节点：
+
+shard1:PRIMARY> rs.remove("10.15.62.203:10001")
+Fri Sep 27 09:20:30.768 DBClientCursor::init call() failed
+Fri Sep 27 09:20:30.770 Error: error doing query: failed at src/mongo/shell/query.js:78
+Fri Sep 27 09:20:30.772 trying reconnect to 127.0.0.1:10001
+Fri Sep 27 09:20:30.775 reconnect 127.0.0.1:10001 ok
+shard1:PRIMARY>
+
+3 查看日志：
+
+Fri Sep 27 09:20:35.784 [conn6] SocketException handling request, closing client connection: 9001 socket exception [SEND_ERROR] server [10.15.62.203:24188]
+Fri Sep 27 09:20:35.785 [conn29] SocketException handling request, closing client connection: 9001 socket exception [SEND_ERROR] server [10.15.62.205:3114]
+
+ 4 再次查看当前分片信息验证：
+
+
+spacer.gif
+
+发现节点 10.15.62.203：10001 已经被移除
+
+5   关闭10.15.62.203：10001 上的mongod进程即可
+
+7.4.2  增加节点：
+
+这里已刚才刚才删除的节点10.15.62.203：10001为例
+
+1  启动新增的节点的mongo进程
+2  将新增的节点加入到切片中：
+当前切片的节点信息：
+spacer.gif
+
+3   增加节点操作：
+shard1:PRIMARY> rs.add("10.15.62.203:10001")
+{ "down" : [ "10.15.62.203:10001" ], "ok" : 1 }
+shard1:PRIMARY>
+
+4   查看后台日志：
+
+spacer.gif
+可以看到已经添加到切片中了
+
+5  查看切片状态
+
+spacer.gif
+
+6  查看所有切片信息：
+
+spacer.gif
+
+
+
+7.5增加移除切片rep-set：
+
+目前40w条数据存储在shard1，shard2，shard3上，考虑到数据分散不均匀，移除rep-set需要就行数据转移，这里选择数据较少的shard3：
+
+1   查看test.user集合中的数据状态：
+mongos> db.users.stats();
+{
+       "sharded" : true,
+       "ns" : "test.users",
+ "count" : 399998,
+       "numExtents" : 20,
+       "size" : 35141840,
+       "storageSize" : 60162048,
+       "totalIndexSize" : 14406112,
+       "indexSizes" : {
+               "_id_" : 14406112
+       },
+       "avgObjSize" : 87.85503927519638,
+       "nindexes" : 1,
+       "nchunks" : 17,
+       "shards" : {
+               "shard1" : {
+                       "ns" : "test.users",
+"count" : 73297,
+                       "size" : 6450144,
+                       "avgObjSize" : 88.00010914498547,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 3752784,
+                       "indexSizes" : {
+                               "_id_" : 3752784
+                       },
+                       "ok" : 1
+               },
+               "shard2" : {
+                       "ns" : "test.users",
+"count" : 274257,
+                       "size" : 24076616,
+                       "avgObjSize" : 87.78851952730469,
+                       "storageSize" : 37797888,
+                       "numExtents" : 8,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 15290368,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 8944544,
+                       "indexSizes" : {
+                               "_id_" : 8944544
+                       },
+                       "ok" : 1
+               },
+               "shard3" : {
+                       "ns" : "test.users",
+ "count" : 52444,
+                       "size" : 4615080,
+                       "avgObjSize" : 88.00015254366562,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 1708784,
+                       "indexSizes" : {
+                               "_id_" : 1708784
+                       },
+                       "ok" : 1
+               }
+       },
+       "ok" : 1
+}
+
+2   执行移除操作：
+mongos> db.runCommand({"removeshard":"shard3"});
+{
+       "msg" : "removeshard completed successfully",
+       "state" : "started",
+       "shard" : "shard3",
+       "ok" : 1
+}
+
+3   查看迁移状态：
+我们可以反复执行上面语句，查看执行结果。
+mongos> db.runCommand({"removeshard":"shard3"});
+{
+       "msg" : "draining ongoing",
+       "state" : "ongoing",
+       "remaining" : {
+               "chunks" : NumberLong(5),
+               "dbs" : NumberLong(0)
+       },
+       "ok" : 1
+}
+从上面可以看到，正在迁移，还剩下5块没迁移完。
+当remain为0之后，这一步就结束了。
+mongos> db.runCommand({"removeshard":"shard3"});
+{
+       "msg" : "draining ongoing",
+       "state" : "ongoing",
+       "remaining" : {
+               "chunks" : NumberLong(2),
+               "dbs" : NumberLong(0)
+       },
+       "ok" : 1
+}
+
+mongos> db.runCommand({"removeshard":"shard3"});
+{
+       "msg" : "removeshard completed successfully",
+       "state" : "completed",
+       "shard" : "shard3",
+       "ok" : 1
+}
+4 查看所有的sharding：
+spacer.gif
+Shard3 已经不在了
+
+5 查看数据是否被切换到另外2个sharding上：
+mongos> db.users.stats()
+{
+       "sharded" : true,
+       "ns" : "test.users",
+"count" : 399998,
+       "numExtents" : 20,
+       "size" : 35141832,
+       "storageSize" : 60162048,
+       "totalIndexSize" : 15738800,
+       "indexSizes" : {
+               "_id_" : 15738800
+       },
+       "avgObjSize" : 87.85501927509638,
+       "nindexes" : 1,
+       "nchunks" : 17,
+       "shards" : {
+               "shard1" : {
+                       "ns" : "test.users",
+"count" : 99519,
+                       "size" : 8757680,
+                       "avgObjSize" : 88.00008038665983,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 5257168,
+                       "indexSizes" : {
+                               "_id_" : 5257168
+                       },
+                       "ok" : 1
+               },
+               "shard2" : {
+                       "ns" : "test.users",
+   "count" : 300479,
+                       "size" : 26384152,
+                       "avgObjSize" : 87.806974863468,
+                       "storageSize" : 37797888,
+                       "numExtents" : 8,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 15290368,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 10473456,
+                       "indexSizes" : {
+                               "_id_" : 10473456
+                       },
+                       "ok" : 1
+               },
+               "shard3" : {
+                       "ns" : "test.users",
+"count" : 0,
+                       "size" : 0,
+                       "storageSize" : 11182080,
+                       "numExtents" : 6,
+                       "nindexes" : 1,
+                       "lastExtentSize" : 8388608,
+                       "paddingFactor" : 1,
+                       "systemFlags" : 1,
+                       "userFlags" : 0,
+                       "totalIndexSize" : 8176,
+                       "indexSizes" : {
+                               "_id_" : 8176
+                       },
+                       "ok" : 1
+               }
+       },
+       "ok" : 1
+}
+mongos>
+
+6 关闭对应的mongod进程
+
+7  注意：
+
+①　 在操作之前确保三台服务器同步时间一致，刚开始操作的时候没注意到这个问题，造成在删除切片的时候一直卡着不动，后台日志显示：
+   caught exception while doing balance: error checking clock skew of cluster 10.15.62.202:20
+000,10.15.62.203:20000,10.15.62.205:20000 :: caused by :: 13650 clock skew of the cluster 10.15.62.202:20000,10.15.62.203:200
+00,10.15.62.205:20000 is too far out of bounds to allow distributed locking.
+
+②　 如果该sharding中存在非切片数据，需要先将非sharding数据移除：
+
+db.runCommand( { movePrimary: "非切片数据", to: "sharding" })至于非切片数据在进行移除切片数据的时候会报错，看报错信息就可以知道了
+
+③　增加sharding同上面一致
+
+7.6 Replica Set 节点切换和 failover
+MongoDB的sharding属性增加了数据的安全性和可靠性，而rep-set增加的则是数据的可用性，水平扩展了数据库的性能，replica set 特性支持自动 failover，当主节点由于某种原因掉线时，replica set 的其它节点可通过竞选产生新的主节点，因为同一个切片中sharding节点之间存在的数据都是一样的，默认情况下主节点primary具有可读写属性，secondary没有读写权限，当primary断掉后会进行重新选举出primary接管该sharding，至于如何重新选举，如何控制选举时间可以作为mongo性能优化的一个在后续说明，后面的mongodb维护文档中做过这方面的测试，这里就不特别指出了。
+
+7.7关于sharding的几点说明：
+
+①　 关于keyfile和auth参数的问题
+
+keyfile包含了auth参数，而且优先级更高，只有你设定了keyfile,auth参数被忽略，也就是开启了用户认证
+
+②　对于shard和config实例，没添加用户前可以本地无验证登录，一旦添加用户，认证即可生效，连当前的session都会失效，需要从新登录
+对于mongos实例由于它的一切信息来自config实例，必须要通过用户认证
+
+③　注意：keyfile参数必须子所有实例中指定，而且必须是同一个key
+
+④　 admin数据库的问题
+admin是一个特殊的数据库，它不在整个sharding中复制
+shard实例中的admin数据库是本地的，当然在同一个replica set是一样的，它仅限于登录shard实例
+config实例中的admin同时给config实例和mongos实例用于实例认证
+在mongos中添加的用户会同步到所有的config实例中
+在config中添加的用户不会同步到其它config实例中，因为它不知道其它实例的存在
+
+
+7.8  Mogodb sharding常见管理操作：
+
+查看sharding状态：
+>printShardingStatus()
+>sh.status()
+查看数据库状态：
+>db.dbname.stats
+
+>db.stats()，查看当前db的一些概况：数据集、大小、索引相关，ok=1表示状态OK了。
+>db.serverStatus()，查看更加详细的信息：全局锁、容量、连接数、异常信息、索引信息等，这里可以看当前连接数和可用连接数
+
+
+7.9  Mongodb运行监控：
+
+spacer.gif
+
+说明：
+
+inserts/s 每秒插入次数
+query/s 每秒查询次数
+update/s 每秒更新次数
+delete/s 每秒删除次数
+getmore/s 每秒执行getmore次数
+command/s 每秒的命令数，比以上插入、查找、更新、删除的综合还多，还统计了别的命令
+vsize 虚拟内存使用量，单位MB
+res 物理内存使用量，单位MB
+faults/s 每秒访问失败数(只有Linux有)，数据被交换出物理内存，放到swap。不要超过100，否则就是机器内存太小，造成频繁swap写入。此时要升级内存或者扩展
+netin 进流量
+Netout 出流量
+conn 当前连接数
+time 时间戳
+
+Mongodb自带了Web控制台，默认和数据服务一同开启。他的端口在Mongodb数据库服务器端口的基础上加1000，如果不需要开启可以在配置文件中加上参数nohttpinterface=true
+
+查看本机监听端口也可以看到：
+
+spacer.gif
+
+通过http访问：
+
+spacer.gif
+spacer.gif
+
+查看replication set副本集：
+
+spacer.gif
+
+可以看到健康检查
+
+这里把10.15.62.203的shard1停掉再看：
+
+spacer.gif
+在监控也能看到停掉了
+
+
+
+8 Keepalive,lvs实现mongos路由冗余
+8.1负载均衡的算法：
+一、　　轮询（round robin, rr),加权轮询(Weighted round robin, wrr)
+新的连接请求被轮流分配至各RealServer；算法的优点是其简洁性，它无需记录当前所有连接的状态，所以它是一种无状态调度。轮叫调度算法假设所有 服务器处理性能均相同，不管服务器的当前连接数和响应速度。该算法相对简单，不适用于服务器组中处理性能不一的情况，而且当请求服务时间变化比较大时，轮 叫调度算法容易导致服务器间的负载不平衡。
+二、　　目标地址散列调度（Destination Hashing，dh）
+算法也是针对目标IP地址的负载均衡，但它是一种静态映射算法，通过一个散列（Hash）函数将一个目标IP地址映射到一台服务器。目标地址散列调度算法先 根据请求的目标IP地址，作为散列键（Hash Key）从静态分配的散列表找出对应的服务器，若该服务器是可用的且未超载，将请求发送到该服务器，否则返回空。
+
+三、源地址散列调度（Source Hashing，sh）
+
+算法正好与目标地址散列调度算法相反，它根据请求的源IP地址，作为散列键（Hash Key）从静态分配的散列表找出对应的服务器，若该服务器是可用的且未超载，将请求发送到该服务器，否则返回空。它采用的散列函数与目标地址散列调度算法 的相同。除了将请求的目标IP地址换成请求的源IP地址外，它的算法流程与目标地址散列调度算法的基本相似。在实际应用中，源地址散列调度和目标地址散列 调度可以结合使用在防火墙集群中，它们可以保证整个系统的唯一出入口。
+
+四、最少连接(least connected, lc)，加权最少连接(weighted least connection, wlc)
+
+    新的连接请求将被分配至当前连接数最少的RealServer；最小连接调度是一种动态调度算法，它通过服务器当前所活跃的连接数来估计服务器的负载情 况。调度器需要记录各个服务器已建立连接的数目，当一个请求被调度到某台服务器，其连接数加1；当连接中止或超时，其连接数减一。
+
+算法：lc：256*A+I=当前连接数  wlc：（256*A+I）/W=当前连接数   【A：活动连接数  I:非活动连接数 W：权重值】
+
+五、基于局部性的最少链接调度（Locality-Based Least Connections Scheduling，lblc）
+
+    针对请求报文的目标IP地址的负载均衡调度，目前主要用于Cache集群系统，因为在Cache集群中客户请求报文的目标IP地址是变化的。这里假设任何 后端服务器都可以处理任一请求，算法的设计目标是在服务器的负载基本平衡情况下，将相同目标IP地址的请求调度到同一台服务器，来提高各台服务器的访问局 部性和主存Cache命中率，从而整个集群系统的处理能力。LBLC调度算法先根据请求的目标IP地址找出该目标IP地址最近使用的服务器，若该服务器是 可用的且没有超载，将请求发送到该服务器；若服务器不存在，或者该服务器超载且有服务器处于其一半的工作负载，则用“最少链接”的原则选出一个可用的服务 器，将请求发送到该服务器。
+
+六、带复制的基于局部性最少链接调度（Locality-Based Least Connections with Replication Scheduling，lblcr）
+
+也是针对目标IP地址的负载均衡，目前主要用于Cache集群系统。它与LBLC算法的不同之处是它要维护从一个目标IP地址到一组服务器的映射，而 LBLC算法维护从一个目标IP地址到一台服务器的映射。对于一个“热门”站点的服务请求，一台Cache 服务器可能会忙不过来处理这些请求。这时，LBLC调度算法会从所有的Cache服务器中按“最小连接”原则选出一台Cache服务器，映射该“热门”站 点到这台Cache服务器，很快这台Cache服务器也会超载，就会重复上述过程选出新的Cache服务器。这样，可能会导致该“热门”站点的映像会出现 在所有的Cache服务器上，降低了Cache服务器的使用效率。LBLCR调度算法将“热门”站点映射到一组Cache服务器（服务器集合），当该“热 门”站点的请求负载增加时，会增加集合里的Cache服务器，来处理不断增长的负载；当该“热门”站点的请求负载降低时，会减少集合里的Cache服务器 数目。这样，该“热门”站点的映像不太可能出现在所有的Cache服务器上，从而提供Cache集群系统的使用效率。LBLCR算法先根据请求的目标IP 地址找出该目标IP地址对应的服务器组；按“最小连接”原则从该服务器组中选出一台服务器，若服务器没有超载，将请求发送到该服务器；若服务器超载；则按 “最小连接”原则从整个集群中选出一台服务器，将该服务器加入到服务器组中，将请求发送到该服务器。同时，当该服务器组有一段时间没有被修改，将最忙的服 务器从服务器组中删除，以降低复制的程度。
+
+七、最短的期望的延迟（Shortest Expected Delay Scheduling ,sed）
+
+sed: (A+1)/w=当前连接数
+
+八、最少队列调度（Never Queue Scheduling ,nq）
+
+无需队列。如果有台realserver的连接数＝0就直接分配过去，不需要在进行sed运算
+
+
+说明：
+    如果LVS放置于多防火墙的网络中，并且每个防火墙都用到了状态追踪的机制，那么在回应一个针对于LVS的连接请求时必须经过此请求连接进来时的防火墙，否则，这个响应的数据包将会被丢弃。
+
+使用最多的算法是rr,wrr,lc,wlc
+
+LVS中应注意的地方：
+默认情况下，ipvsadm在输出主机信息时使用其主机名而非IP地址，因此，Director需要使用名称解析服务。如果没有设置名称解析服务、服务不可用或设置错误，ipvsadm将会一直等到名称解析超时后才返回。当然，ipvsadm需要解析的名称仅限于RealServer，考虑到DNS提供名称解析服务效率不高的情况，建议将所有RealServer的名称解析通过/etc/hosts文件来实现；如果LVS放置于多防火墙的网络中，并且每个防火墙都用到了状态追踪的机制，那么在回应一个针对于LVS的连接请求时必须经过此请求连接进来时的防火墙，否则，这个响应的数据包将会被丢弃。
+8.2 LVS目前有三种IP负载均衡技术
+Virtual Server via Network Address Translation（VS/NAT）
+通过网络地址转换，调度器重写请求报文的目标地址，根据预设的调度算法，将请求分派给后端的真实服务器；真实服务器的响应报文通过调度器时，报文的源地址被重写，再返回给客户，完成整个负载调度过程(调度器的处理能力是瓶颈)。
+Virtual Server via IP Tunneling（VS/TUN）
+采用NAT技术时，由于请求和响应报文都必须经过调 度器地址重写，当客户请求越来越多时，调度器的处理能力将成为瓶颈。为了解决这个问题，调度器把请求报文通过IP隧道转发至真实服务器，而真实服务器将响 应直接返回给客户，所以调度器只处理请求报文。由于一般网络服务应答比请求报文大许多，采用 VS/TUN技术后，集群系统的最大吞吐量可以提高10倍。
+Virtual Server via Direct Routing（VS/DR）
+VS/DR通过改写请求报文的MAC地址，将请求 发送到真实服务器，而真实服务器将响应直接返回给客户。同VS/TUN技术一样，VS/DR技术可极大地提高集群系统的伸缩性。这种方法没有IP隧道的开 销，对集群中的真实服务器也没有必须支持IP隧道协议的要求，但是要求调度器与真实服务器都有一块网卡连在同一物理网段上。
+
+8.3架构：
+spacer.gif
+
+
+这里以10.15.62.202为master，10.15.62.203为backup
+
+8.4安装ipvsadm：
+
+（master和back均安装）
+
+由于缺乏这个debian版本的内核文件，在编译ipvsadm的时候需要读取内核的一些head文件，所以这里采用apt-get安装
+
+8.4.1 Ipvsadm软件安装
+
+#apt-get install ipvsadm
+
+安装完成以后会生成文件 /etc/default/ipvsadm
+
+8.4.2 配置文件修改
+
+修改成以下内容：（开机启动就加载此模块）
+
+spacer.gif
+
+
+8.4.3 查看系统是否加载此模块：
+spacer.gif
+
+
+8.5 安装keepalived：
+
+（master和back均执行如下操作）
+
+8.5.1 安装keepalived所依赖的一些库文件：
+
+#apt-get install libssl-dev  
+#apt-get install openssl  
+#apt-get install libpopt-dev  
+
+8.5.2 选择合适的keepalived版本
+由于keepalived的版本不同，系统对相应模块支持得也有所不通，在debian下使用1.2.2的版本的时候发现keepalived不支持ip_vs模块，同时版本的更新也扩展了不同的功能和对以往bug的修复，这里使用最新的版本：keepalived-1.2.9.tar.gz
+
+8.5.3 安装程序
+#tar -zxvf keepalived-1.2.9.tar.gz
+#cd keepalived-1.2.9
+#./configure --prefix=/opt/keepalived
+确保keepalived对ip_vs模块的支持，如下：
+spacer.gif
+#make;make install
+
+
+说明：
+
+8.5.4 修改启动脚本
+
+/opt/keepalived/sbin/keepaived 为可执行程序
+/opt/keepalived/etc/rc.d/init.d/keepalived 是可以作为service的脚本文件,复制到/etc/init.d目录下
+
+#cp /opt/keepalived/etc/rc.d/init.d/keepalived /etc/init.d/
+
+修改此文件的四个地方：
+
+①　. /etc/rc.d/init.d/functions 修改为：  
+   . /lib/lsb/init-functions  
+
+②　. /etc/sysconfig/keepalived  修改为：
+. /opt/keepalived/etc/sysconfig/keepalived  
+
+③　daemon keepalived ${KEEPALIVED_OPTIONS} 修改为：
+# daemon keepalived ${KEEPALIVED_OPTIONS}
+daemon ${keepalived} start
+
+④　 增加配置：（修改可执行文件的路径）
+
+#exec file
+
+keepalived=/opt/keepalived/sbin/keepalived
+
+说明：1，2两步修改是因为redhat之外的Linux没有上面两处目录
+  3  修改启动执行的命令
+4  指明调用可执行文件的路径
+
+修改后即为：
+
+spacer.gif
+
+当然可以根据实际情况修改：
+8.5.5 启动服务，测试：
+
+新建lock目录：
+#mkdir -p /var/lock/subsys
+将keepalived加入到系统启动服务：
+#update-rc keepalived defaults
+启动服务：
+#service  keepalived start
+查看是否正常启动：
+spacer.gif
+
+表明程序安装已经正常了
+
+8.6 修改配置文件满足负载均衡和HA
+
+以下只针对master操作，backup操作类似
+
+
+#mkdir /etc/keepalived/
+
+说明： 从keepalived的启动脚步中可以看到keepalived加载配置的文件的目录为 /etc/keepalived
+
+spacer.gif
+
+
+使用安装以后的配置模版文件并修改：
+
+#cp /opt/keepalived/etc/keepalived/keepalived.conf /etc/keepalived/
+
+修改配置文件（修改为红色部分）
+
+! Configuration File for keepalived
+
+global_defs {
+  notification_email {
+    524116195@qq.com
+  }
+  notification_email_from 524116195@qq.com
+  smtp_server 163.177.65.211
+  smtp_connect_timeout 30
+  router_id LVS_DEVEL
+}
+
+vrrp_instance VI_1 {
+   state MASTER
+   interface eth0
+   virtual_router_id 51
+   priority 100
+   advert_int 1
+   authentication {
+       auth_type PASS
+       auth_pass yxm@2013
+   }
+   virtual_ipaddress {
+       10.15.62.222
+   }
+}
+
+virtual_server 10.15.62.222 30000 {
+   delay_loop 6
+   lb_algo rr
+   lb_kind DR
+   persistence_timeout 50
+   protocol TCP
+
+   real_server 10.15.62.202 30000 {
+       weight 10
+       TCP_CHECK {    
+           connect_timeout 5    #5秒无响应超时
+           nb_get_retry 3       #重试次数
+           delay_before_retry 3   #重试间隔
+           connect_port 30000      #连接端口
+       }      
+   }
+   real_server 10.15.62.203 30000 {
+       weight 10
+       TCP_CHECK {    
+           connect_timeout 5    #5秒无响应超时
+           nb_get_retry 3       #重试次数
+           delay_before_retry 3   #重试间隔
+           connect_port 30000      #连接端口
+       }      
+   }
+   real_server 10.15.62.205 30000 {
+       weight 10
+       TCP_CHECK {    
+           connect_timeout 5    #5秒无响应超时
+           nb_get_retry 3       #重试次数
+           delay_before_retry 3   #重试间隔
+           connect_port 30000      #连接端口
+       }      
+   }
+}
+
+说明：从服务器与主服务器基本相同，只要改二个地方就行了，priority的权重调小一点，state改成BACKUP
+
+8-7 查看启动过程和测试负载情况
+
+对配置文件修改后重启程序
+
+#service keepalived restart
+
+8-7-1查看启动日志：
+
+#tail -f /var/log/message
+
+Nov 22 17:03:41 debian Keepalived_vrrp[8113]: VRRP_Instance(VI_1) sending 0 priority
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8112]: Removing service [10.15.62.202]:30000 from VS [10.15.62.222]:30000
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8112]: Removing service [10.15.62.203]:30000 from VS [10.15.62.222]:30000
+Nov 22 17:03:41 debian kernel: [ 9715.642476] IPVS: __ip_vs_del_service: enter
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Registering Kernel netlink reflector
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Registering Kernel netlink command channel
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Registering gratuitous ARP shared channel
+
+加载配置文件：
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Opening file '/etc/keepalived/keepalived.conf'.
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Configuration is using : 63140 Bytes
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Registering Kernel netlink reflector
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: Using LinkWatch kernel netlink reflector...
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Registering Kernel netlink command channel
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Opening file '/etc/keepalived/keepalived.conf'.
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Configuration is using : 16767 Bytes
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Using LinkWatch kernel netlink reflector...
+健康检查
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Activating healthchecker for service [10.15.62.202]:30000
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Activating healthchecker for service [10.15.62.203]:30000
+Nov 22 17:03:41 debian Keepalived_healthcheckers[8592]: Activating healthchecker for service [10.15.62.205]:30000
+Vrrp主备选举检查
+Nov 22 17:03:41 debian Keepalived_vrrp[8593]: VRRP_Instance(VI_1) Transition to MASTER STATE
+Nov 22 17:03:42 debian Keepalived_vrrp[8593]: VRRP_Instance(VI_1) Entering MASTER STATE
+
+
+Nov 22 17:03:43 debian Keepalived_healthcheckers[8592]: TCP connection to [10.15.62.205]:30000 failed !!!
+Nov 22 17:03:43 debian Keepalived_healthcheckers[8592]: Removing service [10.15.62.205]:30000 from VS [10.15.62.222]:30000
+
+邮件地址配置smtp连接503 是由于本地MTA故障（未开启sendmail或者postfix邮件服务）
+Nov 22 17:03:43 debian Keepalived_healthcheckers[8592]: Remote SMTP server [163.177.65.211]:25 connected.
+Nov 22 17:03:44 debian Keepalived_healthcheckers[8592]: Error processing MAIL cmd on SMTP server [163.177.65.211]:25. SMTP status code = 503
+Nov 22 17:03:44 debian Keepalived_healthcheckers[8592]: Can not read data from remote SMTP server [163.177.65.211]:25.
+
+此时看到负载连接情况结果如下：
+
+spacer.gif
+
+接下来在启动10.15.62.205 的mongos服务
+
+查看日志发现如下：
+
+Nov 22 17:27:54 debian Keepalived_healthcheckers[2002]: TCP connection to [10.15.62.205]:30000 success.
+Nov 22 17:27:54 debian Keepalived_healthcheckers[2002]: Adding service [10.15.62.205]:30000 to VS [10.15.62.222]:30000
+
+
+已经正常连接10.15.62.205 30000端口了
+
+Nov 22 17:27:54 debian Keepalived_healthcheckers[2002]: Remote SMTP server [163.177.65.211]:25 connected.
+Nov 22 17:27:54 debian Keepalived_healthcheckers[2002]: Error processing MAIL cmd on SMTP server [163.177.65.211]:25. SMTP status code = 503
+Nov 22 17:27:54 debian Keepalived_healthcheckers[2002]: Can not read data from remote SMTP server [163.177.65.211]:25.
+
+命令查看负载连接情况：
+spacer.gif
+
+8-7-2宕机测试
+现在宕掉master的keepalived观察bakcup是否会变为master
+
+spacer.gif
+
+可以很明显到backup 变为master了
+
+然后在恢复master的服务观察是否重新选举master
+
+spacer.gif
+
+由于master的优先级为100，所以当健康监测以后master接收用户请求
+
+
+
+8-8  后端真实服务器进行网络设置并对外提供服务
+①　在提供真实服务的realserver执行如下脚本：
+
+#!/bin/bash
+VIP=10.15.62.222
+. /lib/lsb/init-functions
+case "$1" in
+start)
+
+       /sbin/ifconfig lo:0 $VIP netmask 255.255.255.255 broadcast $VIP up
+       /sbin/route add -host $VIP dev lo:0
+       echo "1" > /proc/sys/net/ipv4/conf/lo/arp_ignore
+       echo "2" > /proc/sys/net/ipv4/conf/lo/arp_announce
+       echo "1" > /proc/sys/net/ipv4/conf/all/arp_ignore
+       echo "2" > /proc/sys/net/ipv4/conf/all/arp_announce
+       sysctl -p >/dev/null 2>&1
+       echo "RealServer Start Ok"
+;;
+stop)
+       /sbin/ifconfig lo:0 down
+       /sbin/route del $VIP >/dev/null 2>&1
+       echo "0" > /proc/sys/net/ipv4/conf/lo/arp_ignore
+       echo "0" > /proc/sys/net/ipv4/conf/lo/arp_announce
+       echo "0" > /proc/sys/net/ipv4/conf/all/arp_ignore
+       echo "0" > /proc/sys/net/ipv4/conf/all/arp_announce
+       echo "RealServer stoped"
+;;
+*)
+       echo "useage $0{start|stop}"
+       exit 1
+esac
+exit 0
+
+②　接下来修改/etc/sysctl.conf将  net.ipv4.ip_forward = 1  打开路由转发
+
+#sysctl -p  (修改生效)
+
+③　然后在realserver上执行的realserver.sh 至此Realserver上操作已完成
+
+
+说明：此脚本主要是在换回接口lo上开启一个VIP（环回接口可以隔离广播），关闭arp抑制
+
+④　然后使用VIP登录mongodb发现一切正常，查看连接状态为：
+spacer.gif
+
+
+目前就写到这，关于mongo备份，监控，将和varinsh，nginx，tornado监控一起完成！
+
+
+
+
+
+
+
+
+
+
+本文出自 “运维那点事” 博客，请务必保留此出处http://yxmsama.blog.51cto.com/2993616/1378556
